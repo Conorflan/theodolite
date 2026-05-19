@@ -53,12 +53,8 @@ body {
   -webkit-user-select: none;
   -webkit-tap-highlight-color: transparent;
   position: relative;
-}
-/* Setup screen handles its own safe-area padding so the capture screen
-   can stay full-bleed without the body containing block being shifted. */
-#setup {
-  padding-top: calc(22px + env(safe-area-inset-top)) !important;
-  padding-bottom: calc(30px + env(safe-area-inset-bottom)) !important;
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
 }
 
 body::before {
@@ -843,7 +839,6 @@ const state = {
   hasCalibrated: false,
   usingCompass: false,
   onTargetSince: 0,
-  lastSensorT: 0,         // for time-based sensor smoothing
   capturing: false,
   stream: null,
   wakeLock: null,
@@ -1036,8 +1031,6 @@ async function startCapture() {
   state.hasCalibrated = false;
   state.usingCompass = false;
   state.onTargetSince = 0;
-  state.lastSensorT = 0;
-  state.yaw = 0; state.pitch = 0; state.roll = 0;
 
   $('modeV').textContent = MODES[state.mode].name;
   $('capT').textContent = String(state.targets.length).padStart(2,'0');
@@ -1051,34 +1044,14 @@ async function startCapture() {
   window.addEventListener('deviceorientation', onOrientation, true);
 
   showScreen('capture');
-  // Force a sync next frame; loop also re-syncs whenever dimensions change.
-  hudCssW = 0;
+  // give the layout a tick before measuring
+  setTimeout(() => { resizeHud(); updateVisibleFOV(); }, 50);
   state.rafId = requestAnimationFrame(loop);
 }
 
 // ============================================================
 // ORIENTATION
 // ============================================================
-// Smoothing: exponential moving average with a time-constant TAU.
-// alpha = 1 - exp(-dt/TAU). Smaller TAU = snappier, more jitter.
-// TAU ≈ 80ms feels stable without much perceptible lag.
-const SMOOTH_TAU_MS = 80;
-
-function smoothScalar(curr, target, dt) {
-  const a = 1 - Math.exp(-dt / SMOOTH_TAU_MS);
-  return curr + a * (target - curr);
-}
-// Wrap-aware smoothing for angles in [0, 360)
-function smoothAngle(curr, target, dt) {
-  let diff = target - curr;
-  while (diff >  180) diff -= 360;
-  while (diff < -180) diff += 360;
-  const a = 1 - Math.exp(-dt / SMOOTH_TAU_MS);
-  let next = curr + a * diff;
-  next = ((next % 360) + 360) % 360;
-  return next;
-}
-
 function onOrientation(e) {
   if (e.alpha == null && e.beta == null) return;
 
@@ -1093,27 +1066,20 @@ function onOrientation(e) {
 
   state.rawYaw = rawYaw;
 
-  const now = performance.now();
-  // First event after start, initialise without smoothing so we don't
-  // animate in from zero.
-  const dt = state.lastSensorT ? Math.min(120, now - state.lastSensorT) : null;
-  state.lastSensorT = now;
+  if (state.hasCalibrated) {
+    let yaw = rawYaw - state.yawRef;
+    yaw = ((yaw % 360) + 360) % 360;
+    state.yaw = yaw;
+  }
 
-  // PITCH: beta = 90 when phone is vertical (back camera at horizon).
+  // PITCH FIX: beta = 90 when phone is vertical (back camera at horizon).
   //   beta > 90  → rear camera tilts up   → pitch > 0  (looking up)
   //   beta < 90  → rear camera tilts down → pitch < 0  (looking down)
-  let pitchRaw = (e.beta || 90) - 90;
-  pitchRaw = Math.max(-90, Math.min(90, pitchRaw));
-  state.pitch = (dt == null) ? pitchRaw : smoothScalar(state.pitch, pitchRaw, dt);
+  let pitch = (e.beta || 90) - 90;
+  pitch = Math.max(-90, Math.min(90, pitch));
+  state.pitch = pitch;
 
-  const rollRaw = e.gamma || 0;
-  state.roll = (dt == null) ? rollRaw : smoothScalar(state.roll, rollRaw, dt);
-
-  if (state.hasCalibrated) {
-    let yawTarget = rawYaw - state.yawRef;
-    yawTarget = ((yawTarget % 360) + 360) % 360;
-    state.yaw = (dt == null) ? yawTarget : smoothAngle(state.yaw, yawTarget, dt);
-  }
+  state.roll = e.gamma || 0;  // for level indicator
 }
 
 // ============================================================
@@ -1121,11 +1087,12 @@ function onOrientation(e) {
 // ============================================================
 function updateVisibleFOV() {
   const v = $('video');
+  const c = $('hud');
   const vw = v.videoWidth, vh = v.videoHeight;
-  const sw = window.innerWidth, sh = window.innerHeight;
+  const sw = c.clientWidth, sh = c.clientHeight;
   if (!vw || !vh || !sw || !sh) {
     state.visFovH = state.fov;
-    state.visFovV = state.fov * sh / Math.max(1, sw);
+    state.visFovV = state.fov * sh / sw;
     return;
   }
   // cover scales so larger of (sw/vw, sh/vh) fills
@@ -1148,42 +1115,20 @@ function updateVisibleFOV() {
 // LOOP
 // ============================================================
 let hudCtx;
-let hudCssW = 0, hudCssH = 0;
-
-// Robust per-frame canvas sizing. We use window.innerWidth/Height
-// directly because some browsers (notably Firefox on Android and
-// Chrome with safe-area-fit=cover) don't reliably propagate the
-// expected inset:0 dimensions through the containing-block chain to
-// the canvas's clientWidth/Height when the screen first becomes
-// visible.
-function ensureCanvasSized() {
+function resizeHud() {
   const c = $('hud');
   const dpr = window.devicePixelRatio || 1;
-  const cssW = window.innerWidth;
-  const cssH = window.innerHeight;
-  if (cssW === hudCssW && cssH === hudCssH && hudCtx) return;
-  c.style.width  = cssW + 'px';
-  c.style.height = cssH + 'px';
-  c.width  = Math.round(cssW * dpr);
-  c.height = Math.round(cssH * dpr);
+  c.width  = c.clientWidth  * dpr;
+  c.height = c.clientHeight * dpr;
   hudCtx = c.getContext('2d');
-  hudCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  hudCssW = cssW;
-  hudCssH = cssH;
+  hudCtx.scale(dpr, dpr);
   updateVisibleFOV();
 }
-// Back-compat alias for code that still calls resizeHud()
-const resizeHud = ensureCanvasSized;
-
-window.addEventListener('resize', () => { hudCssW = 0; }); // force re-sync next frame
-window.addEventListener('orientationchange', () => { hudCssW = 0; });
-if (window.visualViewport) {
-  window.visualViewport.addEventListener('resize', () => { hudCssW = 0; });
-}
+window.addEventListener('resize', () => { setTimeout(resizeHud, 100); });
+window.addEventListener('orientationchange', () => setTimeout(resizeHud, 250));
 
 function loop() {
   if (!screens.capture.classList.contains('active')) return;
-  ensureCanvasSized();
   drawHud();
   drawLevelBar();
   if (state.hasCalibrated) checkAutoCapture();
@@ -1255,7 +1200,7 @@ function drawHud() {
   const c = $('hud');
   const ctx = hudCtx;
   if (!ctx) return;
-  const w = window.innerWidth, h = window.innerHeight;
+  const w = c.clientWidth, h = c.clientHeight;
   ctx.clearRect(0, 0, w, h);
 
   const fovH = state.visFovH;
@@ -1359,69 +1304,31 @@ function drawHud() {
     }
   }
 
-  // === always-visible direction arrow toward next target ===
+  // === off-screen arrow toward next target ===
   if (state.hasCalibrated && state.targetIdx < state.targets.length) {
     const t = state.targets[state.targetIdx];
-    const dAz = angDiff(t.az, state.yaw);
-    const dEl = t.el - state.pitch;
-    const angDist = Math.hypot(dAz, dEl);
-
-    // Hide once you're nearly there — the target reticle is the cue
-    if (angDist > 3) {
-      const proj = projectTarget(t.az, t.el, w, h, fovH, fovV);
-      let angle;
-      let isCentral = false;
-      if (proj) {
-        const dx = proj[0] - cx, dy = proj[1] - cy;
-        const r = Math.hypot(dx, dy);
-        angle = Math.atan2(dy, dx);
-        // "Central" = within 40% of half-screen — the on-screen reticle
-        // is doing the job, no need for an edge arrow on top of it.
-        isCentral = r < Math.min(w, h) * 0.20;
-      } else {
-        // Behind/off-screen: use az/el offset as a heuristic direction.
-        // Screen-y is down, so a target above (dEl>0) gives angle = -π/2.
-        angle = Math.atan2(-dEl, dAz);
-      }
-
-      if (!isCentral) {
-        // Place the arrow at a fixed radius from screen center, clamped
-        // away from the very edge so the chevron stays fully visible.
-        const radius = Math.min(w, h) * 0.40;
-        const ax = cx + Math.cos(angle) * radius;
-        const ay = cy + Math.sin(angle) * radius;
-
-        // Soft halo so it stays legible against any background
-        ctx.fillStyle = 'rgba(10, 9, 8, 0.55)';
-        ctx.beginPath();
-        ctx.arc(ax, ay, 20, 0, Math.PI * 2);
-        ctx.fill();
-
-        ctx.save();
-        ctx.translate(ax, ay);
-        ctx.rotate(angle);
-        ctx.fillStyle = '#ffb547';
-        ctx.beginPath();
-        ctx.moveTo(14, 0);
-        ctx.lineTo(-7, -9);
-        ctx.lineTo(-3, 0);
-        ctx.lineTo(-7, 9);
-        ctx.closePath();
-        ctx.fill();
-        ctx.restore();
-
-        // Distance label, placed just inside the arrow (toward center)
-        const lx = cx + Math.cos(angle) * (radius - 36);
-        const ly = cy + Math.sin(angle) * (radius - 36);
-        const txt = Math.round(angDist) + '°';
-        ctx.font = '600 10px "IBM Plex Mono", monospace';
-        ctx.textAlign = 'center';
-        const tw = ctx.measureText(txt).width;
-        ctx.fillStyle = 'rgba(10, 9, 8, 0.7)';
-        ctx.fillRect(lx - tw/2 - 5, ly - 9, tw + 10, 15);
-        ctx.fillStyle = '#ffd479';
-        ctx.fillText(txt, lx, ly + 2);
-      }
+    const proj = projectTarget(t.az, t.el, w, h, fovH, fovV);
+    if (!proj) {
+      // draw edge arrow
+      const dAz = angDiff(t.az, state.yaw);
+      const dEl = t.el - state.pitch;
+      // angle for arrow direction (atan2 of dAz, dEl reversed)
+      const angle = Math.atan2(-dEl, dAz);
+      const dist = Math.min(w, h) * 0.38;
+      const ax = cx + Math.cos(angle) * dist;
+      const ay = cy + Math.sin(angle) * dist;
+      ctx.fillStyle = '#ffb547';
+      ctx.save();
+      ctx.translate(ax, ay);
+      ctx.rotate(angle);
+      ctx.beginPath();
+      ctx.moveTo(14, 0); ctx.lineTo(-6, -8); ctx.lineTo(-6, 8); ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+      ctx.fillStyle = '#ffb547';
+      ctx.font = '500 9px "IBM Plex Mono", monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(`${Math.round(Math.abs(dAz))}° away`, ax, ay - 16);
     }
   }
 }
@@ -1524,8 +1431,9 @@ async function attemptCapture(manual) {
 
   // Capture only the VISIBLE area (cropped per object-fit: cover)
   const v = $('video');
+  const c = $('hud');
   const vw = v.videoWidth || 1080, vh = v.videoHeight || 1920;
-  const sw = window.innerWidth, sh = window.innerHeight;
+  const sw = c.clientWidth, sh = c.clientHeight;
 
   const scale = Math.max(sw / vw, sh / vh);
   const visW = sw / scale;
