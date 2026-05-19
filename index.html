@@ -3,10 +3,19 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>Theodolite — Panorama Capture</title>
+
+<!-- PWA -->
+<link rel="manifest" href="./manifest.webmanifest">
+<meta name="theme-color" content="#0a0908">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="theme-color" content="#0a0908">
-<title>Theodolite — Panorama Capture</title>
+<meta name="apple-mobile-web-app-title" content="Theodolite">
+<meta name="mobile-web-app-capable" content="yes">
+<link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="32x32" href="./icons/favicon-32.png">
+<link rel="icon" type="image/svg+xml" href="./icons/icon.svg">
+
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=IBM+Plex+Sans+Condensed:wght@300;400;600;700&display=swap" rel="stylesheet">
@@ -29,7 +38,11 @@
   --display: 'IBM Plex Sans Condensed', sans-serif;
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
-html, body { height: 100%; overflow: hidden; overscroll-behavior: none; }
+html, body {
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
 body {
   font-family: var(--mono);
   background: var(--bg);
@@ -40,20 +53,18 @@ body {
   -webkit-user-select: none;
   -webkit-tap-highlight-color: transparent;
   position: relative;
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
 }
 
-/* faint scanline overlay */
 body::before {
   content: '';
   position: fixed; inset: 0;
   background-image:
     repeating-linear-gradient(
       to bottom,
-      transparent 0,
-      transparent 2px,
-      rgba(255,181,71,0.012) 2px,
-      rgba(255,181,71,0.012) 3px
-    );
+      transparent 0, transparent 2px,
+      rgba(255,181,71,0.012) 2px, rgba(255,181,71,0.012) 3px);
   pointer-events: none;
   z-index: 50;
 }
@@ -62,7 +73,6 @@ body::before {
 .screen { position: absolute; inset: 0; display: none; }
 .screen.active { display: flex; }
 
-/* corner crosshairs */
 .corners > .c {
   position: absolute;
   width: 12px; height: 12px;
@@ -75,7 +85,7 @@ body::before {
 .corners > .c.bl { bottom: 10px; left: 10px;  border-bottom: 1px solid; border-left: 1px solid; }
 .corners > .c.br { bottom: 10px; right: 10px; border-bottom: 1px solid; border-right: 1px solid; }
 
-/* === SETUP SCREEN === */
+/* === SETUP === */
 #setup {
   flex-direction: column;
   padding: 22px 18px 30px;
@@ -119,23 +129,14 @@ body::before {
   letter-spacing: 0.22em;
   color: var(--text-dim);
   text-transform: uppercase;
-  margin: 20px 0 8px;
+  margin: 18px 0 8px;
   display: flex;
   align-items: center;
   gap: 8px;
   font-weight: 500;
 }
-.section-label::before {
-  content: '';
-  width: 5px; height: 5px;
-  background: var(--amber-dim);
-}
-.section-label::after {
-  content: '';
-  flex: 1;
-  height: 1px;
-  background: var(--line);
-}
+.section-label::before { content: ''; width: 5px; height: 5px; background: var(--amber-dim); }
+.section-label::after { content: ''; flex: 1; height: 1px; background: var(--line); }
 
 .modes { display: flex; flex-direction: column; gap: 6px; }
 .mode {
@@ -191,15 +192,10 @@ body::before {
   font-weight: 600;
   font-size: 17px;
   color: var(--text);
-  letter-spacing: 0.02em;
 }
 .mode.selected .stats b { color: var(--amber); }
 
-.params {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 6px;
-}
+.params { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .param {
   border: 1px solid var(--line);
   background: var(--bg-soft);
@@ -218,14 +214,10 @@ body::before {
   font-size: 20px;
   margin-top: 3px;
   color: var(--amber);
-  letter-spacing: 0.01em;
 }
 .param .v small { font-size: 11px; color: var(--text-dim); font-weight: 400; margin-left: 2px; }
 .param .controls {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  margin-top: 6px;
+  display: flex; align-items: center; gap: 5px; margin-top: 6px;
 }
 .btn-tiny {
   flex: 1;
@@ -236,7 +228,6 @@ body::before {
   font-size: 14px;
   padding: 5px 0;
   cursor: pointer;
-  transition: background .1s, border-color .1s;
 }
 .btn-tiny:active { background: rgba(255,181,71,0.12); border-color: var(--amber-dim); }
 
@@ -251,6 +242,7 @@ body::before {
   background: rgba(255,181,71,0.025);
 }
 .note b { color: var(--amber); font-weight: 500; }
+.note code { color: var(--amber-bright); background: rgba(255,181,71,0.05); padding: 0 4px; }
 
 .start-btn {
   display: block;
@@ -266,13 +258,31 @@ body::before {
   text-transform: uppercase;
   font-size: 13px;
   cursor: pointer;
-  position: relative;
-  transition: background .1s;
 }
 .start-btn:active { background: var(--amber-bright); }
-.start-btn:disabled { background: var(--amber-dim); cursor: not-allowed; }
+.install-row {
+  margin-top: 8px;
+  font-size: 10px;
+  color: var(--text-dim);
+  text-align: center;
+  letter-spacing: 0.08em;
+}
+.install-row #installBtn {
+  display: none;
+  margin-top: 6px;
+  background: transparent;
+  border: 1px solid var(--amber-dim);
+  color: var(--amber);
+  padding: 8px 18px;
+  font-family: var(--display);
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  font-size: 10px;
+  text-transform: uppercase;
+  cursor: pointer;
+}
 
-/* === CAPTURE SCREEN === */
+/* === CAPTURE === */
 #capture { background: #000; }
 #video {
   position: absolute;
@@ -285,9 +295,11 @@ body::before {
   inset: 0;
   pointer-events: none;
 }
+
 .hud-top {
   position: absolute;
-  top: 0; left: 0; right: 0;
+  top: env(safe-area-inset-top, 0);
+  left: 0; right: 0;
   display: flex;
   justify-content: space-between;
   padding: 12px 14px 24px;
@@ -296,6 +308,7 @@ body::before {
   letter-spacing: 0.1em;
   text-transform: uppercase;
   pointer-events: none;
+  z-index: 4;
 }
 .hud-top .col { display: flex; flex-direction: column; gap: 2px; }
 .hud-top .col.r { text-align: right; align-items: flex-end; }
@@ -308,12 +321,26 @@ body::before {
   letter-spacing: 0.04em;
 }
 
+/* level indicator – small horizontal bar showing phone roll */
+.level-bar {
+  position: absolute;
+  top: 60px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 100px;
+  height: 18px;
+  pointer-events: none;
+  z-index: 5;
+  opacity: 0.85;
+}
+
 .hud-bottom {
   position: absolute;
   bottom: 0; left: 0; right: 0;
-  padding: 12px 14px 18px;
+  padding: 12px 14px calc(18px + env(safe-area-inset-bottom, 0));
   background: linear-gradient(to top, rgba(0,0,0,0.92), transparent);
   pointer-events: none;
+  z-index: 4;
 }
 .progress-row { display: flex; align-items: center; gap: 12px; }
 .progress {
@@ -334,8 +361,6 @@ body::before {
   font-weight: 500;
   font-size: 20px;
   color: var(--amber);
-  letter-spacing: 0.04em;
-  text-align: right;
 }
 .count .total { color: var(--text-dim); font-size: 13px; }
 
@@ -351,7 +376,7 @@ body::before {
 
 .cap-actions {
   position: absolute;
-  top: 60px;
+  top: calc(60px + env(safe-area-inset-top, 0));
   right: 12px;
   display: flex;
   flex-direction: column;
@@ -376,6 +401,75 @@ body::before {
 .cap-btn:active { background: rgba(255,181,71,0.15); }
 .cap-btn.danger { color: var(--red); border-color: rgba(255,90,60,0.4); }
 .cap-btn.primary { background: var(--amber); color: #000; border-color: var(--amber); }
+.cap-btn.disabled { opacity: 0.35; pointer-events: none; }
+
+/* === SHUTTER (initial-capture) === */
+.shutter-wrap {
+  position: absolute;
+  left: 0; right: 0;
+  bottom: calc(110px + env(safe-area-inset-bottom, 0));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  pointer-events: none;
+  z-index: 8;
+  transition: opacity .25s, transform .25s;
+}
+.shutter-wrap.hidden { opacity: 0; transform: translateY(20px); pointer-events: none; }
+
+.shutter-prompt {
+  font-family: var(--display);
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  font-size: 11px;
+  color: var(--amber);
+  text-transform: uppercase;
+  background: rgba(0,0,0,0.65);
+  padding: 7px 14px;
+  margin-bottom: 14px;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid var(--amber-dim);
+  text-align: center;
+  max-width: 84vw;
+}
+.shutter-prompt small {
+  display: block;
+  font-family: var(--mono);
+  font-weight: 400;
+  font-size: 9px;
+  color: var(--text-dim);
+  letter-spacing: 0.06em;
+  margin-top: 3px;
+  text-transform: none;
+}
+.shutter-btn {
+  pointer-events: auto;
+  width: 78px; height: 78px;
+  border: 3px solid var(--amber);
+  border-radius: 50%;
+  background: transparent;
+  position: relative;
+  cursor: pointer;
+  padding: 0;
+  box-shadow: 0 0 32px rgba(255, 181, 71, 0.45), inset 0 0 12px rgba(0,0,0,0.4);
+  transition: transform .1s;
+}
+.shutter-btn::before {
+  content: '';
+  position: absolute;
+  inset: 7px;
+  border-radius: 50%;
+  background: var(--amber);
+  transition: transform .1s, background .1s;
+}
+.shutter-btn:active { transform: scale(0.95); }
+.shutter-btn:active::before { background: var(--amber-bright); transform: scale(0.88); }
+.shutter-btn.waiting::before { background: var(--amber-dim); animation: pulse 1.4s ease-in-out infinite; }
+@keyframes pulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
 
 .lock-indicator {
   position: absolute;
@@ -393,6 +487,7 @@ body::before {
   opacity: 0;
   transition: opacity .12s;
   pointer-events: none;
+  z-index: 6;
 }
 .lock-indicator.show { opacity: 1; }
 
@@ -402,6 +497,7 @@ body::before {
   opacity: 0;
   pointer-events: none;
   mix-blend-mode: difference;
+  z-index: 3;
 }
 .flash.show { animation: flashAnim .25s ease-out; }
 @keyframes flashAnim {
@@ -410,7 +506,7 @@ body::before {
   100% { opacity: 0; }
 }
 
-/* === REVIEW SCREEN === */
+/* === REVIEW === */
 #review {
   flex-direction: column;
   padding: 18px 16px 30px;
@@ -426,11 +522,7 @@ body::before {
   position: relative;
   aspect-ratio: 2 / 1;
 }
-.review-preview canvas {
-  width: 100%;
-  height: 100%;
-  display: block;
-}
+.review-preview canvas { width: 100%; height: 100%; display: block; }
 .review-info {
   display: grid;
   grid-template-columns: 1fr 1fr 1fr;
@@ -456,18 +548,12 @@ body::before {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  transition: background .1s;
 }
 .dl-btn:active { background: rgba(255,181,71,0.12); }
 .dl-btn .arrow { color: var(--text-dim); font-family: var(--mono); }
-.dl-btn.secondary {
-  border-color: var(--line);
-  background: var(--bg-soft);
-  color: var(--text);
-}
+.dl-btn.secondary { border-color: var(--line); background: var(--bg-soft); color: var(--text); }
 .dl-btn.disabled { opacity: 0.4; pointer-events: none; }
 
-/* === STATUS / ERROR === */
 .status-overlay {
   position: absolute;
   inset: 0;
@@ -513,6 +599,37 @@ body::before {
   letter-spacing: 0.1em;
   margin-top: 6px;
 }
+
+/* landscape warning */
+.landscape-warn {
+  display: none;
+  position: fixed; inset: 0;
+  background: var(--bg);
+  z-index: 200;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 30px;
+  text-align: center;
+}
+@media screen and (orientation: landscape) and (max-height: 500px) {
+  body.in-capture .landscape-warn { display: flex; }
+}
+.landscape-warn h3 {
+  font-family: var(--display);
+  font-weight: 300;
+  font-size: 20px;
+  letter-spacing: 0.1em;
+  color: var(--amber);
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+.landscape-warn p {
+  font-size: 11px;
+  color: var(--text-dim);
+  letter-spacing: 0.06em;
+  line-height: 1.6;
+}
 </style>
 </head>
 <body>
@@ -523,7 +640,7 @@ body::before {
   <div class="screen active corners" id="setup">
     <div class="c tl"></div><div class="c tr"></div><div class="c bl"></div><div class="c br"></div>
 
-    <div class="brand">THEODOLITE<span class="d">·</span>v1<span class="d">·</span>PANO CAPTURE</div>
+    <div class="brand">THEODOLITE<span class="d">·</span>v2<span class="d">·</span>PANO CAPTURE</div>
     <div class="title">Sphere<br>by <em>instrument</em></div>
     <div class="subtitle">
       <span>Multi-frame guided capture</span>
@@ -537,7 +654,7 @@ body::before {
     <div class="params">
       <div class="param">
         <div class="k">CAM FOV (H)</div>
-        <div class="v"><span id="fovVal">65</span><small>°</small></div>
+        <div class="v"><span id="fovVal">68</span><small>°</small></div>
         <div class="controls">
           <button class="btn-tiny" data-fov="-5">−</button>
           <button class="btn-tiny" data-fov="+5">+</button>
@@ -545,7 +662,7 @@ body::before {
       </div>
       <div class="param">
         <div class="k">LOCK TOLERANCE</div>
-        <div class="v">±<span id="tolVal">3</span><small>°</small></div>
+        <div class="v">±<span id="tolVal">4</span><small>°</small></div>
         <div class="controls">
           <button class="btn-tiny" data-tol="-1">−</button>
           <button class="btn-tiny" data-tol="+1">+</button>
@@ -554,22 +671,27 @@ body::before {
     </div>
 
     <div class="note">
-      <b>Stance:</b> phone in portrait, rear camera pointing outward. Rotate your body around its vertical axis — keep the phone close to the same point in space. Auto-capture fires when a target is locked and held briefly.
+      <b>How it works:</b> point your phone at where you want the panorama to start, then tap the amber <b>shutter</b>. That frame defines direction <code>0°</code>. Reticles appear for the remaining targets — align reticle to target, hold steady ~½ second, auto-capture fires. Keep the phone vertical and rotate around <em>your own axis</em>, not the phone's.
     </div>
 
     <button class="start-btn" id="startBtn">Initialise Capture →</button>
+    <div class="install-row">
+      Install to home screen for offline use
+      <br><button id="installBtn">Install App</button>
+    </div>
   </div>
 
   <!-- ============ CAPTURE ============ -->
   <div class="screen" id="capture">
     <video id="video" autoplay playsinline muted></video>
     <canvas id="hud"></canvas>
+    <canvas class="level-bar" id="levelBar" width="200" height="36"></canvas>
     <div class="flash" id="flash"></div>
 
     <div class="hud-top">
       <div class="col">
         <span class="k">AZ / EL</span>
-        <span class="v"><span id="azV">000.0</span>° <span style="color:var(--text-dim);">/</span> <span id="elV">+00.0</span>°</span>
+        <span class="v"><span id="azV">---</span>° <span style="color:var(--text-dim);">/</span> <span id="elV">---</span>°</span>
       </div>
       <div class="col" style="align-items:center;">
         <span class="k">TARGET</span>
@@ -583,18 +705,27 @@ body::before {
 
     <div class="cap-actions">
       <button class="cap-btn danger" id="cancelBtn">Abort</button>
-      <button class="cap-btn" id="manualBtn">Manual ●</button>
-      <button class="cap-btn primary" id="finishBtn">Finish</button>
+      <button class="cap-btn disabled" id="manualBtn">Manual ●</button>
+      <button class="cap-btn primary disabled" id="finishBtn">Finish</button>
     </div>
 
     <div class="lock-indicator" id="lockInd">— CAPTURED —</div>
+
+    <!-- Initial shutter: shown until first capture -->
+    <div class="shutter-wrap" id="shutterWrap">
+      <div class="shutter-prompt" id="shutterPrompt">
+        Aim · Tap shutter to begin
+        <small>This direction becomes 0°</small>
+      </div>
+      <button class="shutter-btn waiting" id="shutterBtn" aria-label="Capture first frame"></button>
+    </div>
 
     <div class="hud-bottom">
       <div class="progress-row">
         <div class="count"><span id="capN">00</span><span class="total">/<span id="capT">00</span></span></div>
         <div class="progress"><div id="capProg"></div></div>
       </div>
-      <div class="hint" id="hintText">Align reticle with <span>amber target</span> and hold steady</div>
+      <div class="hint" id="hintText">Point at your start direction, hold the phone vertical, tap <span>shutter</span></div>
     </div>
   </div>
 
@@ -634,12 +765,12 @@ body::before {
     </div>
 
     <div class="note" style="margin-top: 14px;">
-      <b>For a clean stitch</b> feed the frame zip into <b>Hugin</b> or <b>PTGui</b>. <code style="color:var(--amber);">metadata.json</code> lists each frame's yaw/pitch/FOV so the software can skip feature matching if you want.
+      <b>For a clean stitch</b> feed the frame zip into <b>Hugin</b> or <b>PTGui</b>. <code>metadata.json</code> lists each frame's yaw/pitch/FOV so the software can skip feature matching if you want.
     </div>
   </div>
 
   <!-- ============ STATUS OVERLAYS ============ -->
-  <div class="status-overlay" id="errorOverlay" style="display:none;">
+  <div class="status-overlay error" id="errorOverlay" style="display:none;">
     <h2 id="errTitle">Permission required</h2>
     <p id="errText">This app needs camera and motion-sensor access.</p>
     <button class="cap-btn primary" id="errBtn">Retry</button>
@@ -652,6 +783,11 @@ body::before {
     <div class="progress-text" id="workPct">0%</div>
   </div>
 
+  <div class="landscape-warn">
+    <h3>↺ Rotate to portrait</h3>
+    <p>Theodolite uses gravity for elevation tracking and needs the phone held vertically.</p>
+  </div>
+
 </div>
 
 <script>
@@ -659,23 +795,57 @@ body::before {
 'use strict';
 
 // ============================================================
+// PWA — service worker
+// ============================================================
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js').catch(err => {
+      console.warn('SW registration failed:', err);
+    });
+  });
+}
+
+// Install prompt (Chrome / Android)
+let deferredInstall = null;
+window.addEventListener('beforeinstallprompt', e => {
+  e.preventDefault();
+  deferredInstall = e;
+  document.getElementById('installBtn').style.display = 'inline-block';
+});
+document.getElementById('installBtn').addEventListener('click', async () => {
+  if (!deferredInstall) {
+    alert('On iOS: tap the Share button in Safari → "Add to Home Screen".\n\nOn Android: in Chrome menu → "Install app" or "Add to Home Screen".');
+    return;
+  }
+  deferredInstall.prompt();
+  await deferredInstall.userChoice;
+  deferredInstall = null;
+  document.getElementById('installBtn').style.display = 'none';
+});
+
+// ============================================================
 // STATE
 // ============================================================
 const state = {
   mode: 'cyl',
-  fov: 65,
-  tol: 3,
+  fov: 68,              // user-stated camera horizontal FOV (degrees)
+  tol: 4,
   captures: [],
   targets: [],
   targetIdx: 0,
-  yaw: 0, pitch: 0,
-  yawRef: null,            // reference angle for "start direction = 0"
+  yaw: 0, pitch: 0, roll: 0,
+  rawYaw: null,           // last raw sensor yaw (compass or alpha-derived)
+  yawRef: null,           // reference yaw (set on first shutter press)
+  hasCalibrated: false,
   usingCompass: false,
   onTargetSince: 0,
   capturing: false,
   stream: null,
   wakeLock: null,
   rafId: null,
+  // computed visible FOV (after object-fit:cover crop)
+  visFovH: 68,
+  visFovV: 68,
 };
 
 // ============================================================
@@ -699,7 +869,7 @@ const MODES = {
     desc: '180° forward arc, no full circle',
     compute: () => {
       const arr = [];
-      for (let a = -75; a <= 75; a += 30) arr.push({ az: a, el: 0 });
+      for (let a = -75; a <= 75; a += 30) arr.push({ az: (a + 360) % 360, el: 0 });
       return arr;
     },
     glyph: '<svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1"><path d="M4 19 Q16 7 28 19"/><circle cx="16" cy="13" r="1.5" fill="currentColor"/></svg>',
@@ -721,13 +891,12 @@ const MODES = {
     desc: 'Complete equirect, all directions',
     compute: () => {
       const arr = [];
-      // middle bands
       for (const e of [-45, 0, 45]) {
         const step = e === 0 ? 30 : 45;
         for (let a = 0; a < 360; a += step) arr.push({ az: a, el: e });
       }
-      arr.push({ az: 0,   el: 80 });   // zenith
-      arr.push({ az: 0,   el: -80 });  // nadir
+      arr.push({ az: 0,   el: 80 });
+      arr.push({ az: 0,   el: -80 });
       return arr;
     },
     glyph: '<svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1"><circle cx="16" cy="16" r="12"/><ellipse cx="16" cy="16" rx="12" ry="5"/><line x1="16" y1="4" x2="16" y2="28"/></svg>',
@@ -752,14 +921,12 @@ const MODES = {
 // DOM HELPERS
 // ============================================================
 const $ = id => document.getElementById(id);
-const screens = {
-  setup: $('setup'),
-  capture: $('capture'),
-  review: $('review'),
-};
+const screens = { setup: $('setup'), capture: $('capture'), review: $('review') };
+
 function showScreen(name) {
   Object.values(screens).forEach(s => s.classList.remove('active'));
   screens[name].classList.add('active');
+  document.body.classList.toggle('in-capture', name === 'capture');
 }
 function showError(title, msg) {
   $('errTitle').textContent = title;
@@ -808,14 +975,9 @@ $('startBtn').addEventListener('click', startCapture);
 $('cancelBtn').addEventListener('click', abortCapture);
 $('finishBtn').addEventListener('click', () => finishCapture(false));
 $('manualBtn').addEventListener('click', () => attemptCapture(true));
-$('restartBtn').addEventListener('click', () => {
-  state.captures = [];
-  showScreen('setup');
-});
-$('errBtn').addEventListener('click', () => {
-  $('errorOverlay').style.display = 'none';
-  startCapture();
-});
+$('shutterBtn').addEventListener('click', performInitialCapture);
+$('restartBtn').addEventListener('click', () => { state.captures = []; showScreen('setup'); });
+$('errBtn').addEventListener('click', () => { $('errorOverlay').style.display = 'none'; startCapture(); });
 $('dlComposite').addEventListener('click', downloadComposite);
 $('dlZip').addEventListener('click', downloadZip);
 
@@ -825,7 +987,6 @@ $('dlZip').addEventListener('click', downloadZip);
 async function startCapture() {
   $('errorOverlay').style.display = 'none';
 
-  // iOS motion permission
   try {
     if (typeof DeviceOrientationEvent !== 'undefined' &&
         typeof DeviceOrientationEvent.requestPermission === 'function') {
@@ -837,10 +998,9 @@ async function startCapture() {
     }
   } catch (e) {
     return showError('Motion sensor unavailable',
-      'Couldn\'t request motion permission. ' + e.message);
+      "Couldn't request motion permission. " + e.message);
   }
 
-  // Camera
   try {
     state.stream = await navigator.mediaDevices.getUserMedia({
       video: {
@@ -855,32 +1015,37 @@ async function startCapture() {
     await v.play();
   } catch (e) {
     return showError('Camera unavailable',
-      'Couldn\'t access the camera. ' + e.message +
-      '. If you\'re inside the Claude app, the iframe may block camera access — try opening the saved HTML file in your phone\'s browser over HTTPS.');
+      "Couldn't access the camera. " + e.message);
   }
 
-  // Wake lock
   if ('wakeLock' in navigator) {
     try { state.wakeLock = await navigator.wakeLock.request('screen'); } catch(e){}
   }
 
-  // Init capture session
+  // Reset state for new session
   state.captures = [];
   state.targets = MODES[state.mode].compute();
   state.targetIdx = 0;
+  state.rawYaw = null;
   state.yawRef = null;
+  state.hasCalibrated = false;
   state.usingCompass = false;
+  state.onTargetSince = 0;
 
   $('modeV').textContent = MODES[state.mode].name;
   $('capT').textContent = String(state.targets.length).padStart(2,'0');
+  $('shutterWrap').classList.remove('hidden');
+  $('manualBtn').classList.add('disabled');
+  $('finishBtn').classList.add('disabled');
+  $('hintText').innerHTML = 'Point at your start direction, hold the phone vertical, tap <span>shutter</span>';
   updateProgress();
 
-  // Listen for orientation. Prefer deviceorientationabsolute when available.
   window.addEventListener('deviceorientationabsolute', onOrientation, true);
   window.addEventListener('deviceorientation', onOrientation, true);
 
   showScreen('capture');
-  resizeHud();
+  // give the layout a tick before measuring
+  setTimeout(() => { resizeHud(); updateVisibleFOV(); }, 50);
   state.rafId = requestAnimationFrame(loop);
 }
 
@@ -890,32 +1055,64 @@ async function startCapture() {
 function onOrientation(e) {
   if (e.alpha == null && e.beta == null) return;
 
-  // Prefer iOS true compass heading; fall back to alpha
   let rawYaw;
   if (e.webkitCompassHeading != null) {
-    rawYaw = e.webkitCompassHeading;        // 0 = N, increases clockwise
+    rawYaw = e.webkitCompassHeading;        // iOS: true heading, CW from N
     state.usingCompass = true;
   } else if (e.alpha != null) {
-    // alpha: 0 = device's initial azimuth, increases counter-clockwise (right-hand rule around Z)
-    // We want clockwise-increasing yaw to match physical rotation to the right:
+    // alpha is CCW around Z; we want CW yaw to match physical rotation
     rawYaw = (360 - e.alpha) % 360;
   } else return;
 
-  if (state.yawRef == null) state.yawRef = rawYaw;
-  let yaw = rawYaw - state.yawRef;
-  yaw = ((yaw % 360) + 360) % 360;          // [0, 360)
-  state.yaw = yaw;
+  state.rawYaw = rawYaw;
 
-  // pitch: when phone is held in portrait pointing outward, beta ≈ 90.
-  //  beta = 0   → looking straight up   (el = +90)
-  //  beta = 180 → looking straight down (el = -90)
-  let pitch = 90 - (e.beta || 90);
+  if (state.hasCalibrated) {
+    let yaw = rawYaw - state.yawRef;
+    yaw = ((yaw % 360) + 360) % 360;
+    state.yaw = yaw;
+  }
+
+  // PITCH FIX: beta = 90 when phone is vertical (back camera at horizon).
+  //   beta > 90  → rear camera tilts up   → pitch > 0  (looking up)
+  //   beta < 90  → rear camera tilts down → pitch < 0  (looking down)
+  let pitch = (e.beta || 90) - 90;
   pitch = Math.max(-90, Math.min(90, pitch));
   state.pitch = pitch;
+
+  state.roll = e.gamma || 0;  // for level indicator
 }
 
 // ============================================================
-// MAIN LOOP
+// VISIBLE FOV (object-fit: cover crops the video)
+// ============================================================
+function updateVisibleFOV() {
+  const v = $('video');
+  const c = $('hud');
+  const vw = v.videoWidth, vh = v.videoHeight;
+  const sw = c.clientWidth, sh = c.clientHeight;
+  if (!vw || !vh || !sw || !sh) {
+    state.visFovH = state.fov;
+    state.visFovV = state.fov * sh / sw;
+    return;
+  }
+  // cover scales so larger of (sw/vw, sh/vh) fills
+  const scale = Math.max(sw / vw, sh / vh);
+  const visVideoW = sw / scale;   // visible width in video pixel units
+  const visVideoH = sh / scale;
+
+  const tanFullH = Math.tan(state.fov * Math.PI / 360);
+  // visible width as fraction of full → scale tan
+  const tanVisH = tanFullH * (visVideoW / vw);
+  state.visFovH = 2 * Math.atan(tanVisH) * 180 / Math.PI;
+
+  // full vertical FOV from full horizontal + video aspect
+  const tanFullV = tanFullH * (vh / vw);
+  const tanVisV = tanFullV * (visVideoH / vh);
+  state.visFovV = 2 * Math.atan(tanVisV) * 180 / Math.PI;
+}
+
+// ============================================================
+// LOOP
 // ============================================================
 let hudCtx;
 function resizeHud() {
@@ -925,27 +1122,36 @@ function resizeHud() {
   c.height = c.clientHeight * dpr;
   hudCtx = c.getContext('2d');
   hudCtx.scale(dpr, dpr);
+  updateVisibleFOV();
 }
-window.addEventListener('resize', resizeHud);
-window.addEventListener('orientationchange', () => setTimeout(resizeHud, 200));
+window.addEventListener('resize', () => { setTimeout(resizeHud, 100); });
+window.addEventListener('orientationchange', () => setTimeout(resizeHud, 250));
 
 function loop() {
   if (!screens.capture.classList.contains('active')) return;
   drawHud();
-  checkAutoCapture();
+  drawLevelBar();
+  if (state.hasCalibrated) checkAutoCapture();
   updateReadout();
   state.rafId = requestAnimationFrame(loop);
 }
 
 function updateReadout() {
-  $('azV').textContent = state.yaw.toFixed(1).padStart(5, '0');
-  $('elV').textContent = (state.pitch >= 0 ? '+' : '') + state.pitch.toFixed(1).padStart(4, '0');
-  const t = state.targets[state.targetIdx];
-  if (t) {
-    $('tAzV').textContent = String(t.az).padStart(3, '0');
-    $('tElV').textContent = (t.el >= 0 ? '+' : '') + String(Math.abs(t.el)).padStart(2, '0');
+  if (state.hasCalibrated) {
+    $('azV').textContent = state.yaw.toFixed(1).padStart(5, '0');
+    $('elV').textContent = (state.pitch >= 0 ? '+' : '') + state.pitch.toFixed(1).padStart(4, '0');
+    const t = state.targets[state.targetIdx];
+    if (t) {
+      $('tAzV').textContent = String(t.az).padStart(3, '0');
+      $('tElV').textContent = (t.el >= 0 ? '+' : '') + String(Math.abs(t.el)).padStart(2, '0');
+    } else {
+      $('tAzV').textContent = '---'; $('tElV').textContent = '---';
+    }
   } else {
-    $('tAzV').textContent = '---'; $('tElV').textContent = '---';
+    $('azV').textContent = state.rawYaw != null ? '0.0' : '---';
+    $('elV').textContent = (state.pitch >= 0 ? '+' : '') + state.pitch.toFixed(1);
+    $('tAzV').textContent = '---';
+    $('tElV').textContent = '---';
   }
 }
 
@@ -953,43 +1159,40 @@ function angDiff(a, b) {
   return ((a - b + 540) % 360) - 180;
 }
 
-// Project (target_az, target_el) onto HUD screen given current camera orientation.
-// Returns null if target is behind the camera (>90° from forward).
-function projectTarget(tAz, tEl, w, h, fovH, fovV) {
-  const dAz = angDiff(tAz, state.yaw);   // degrees
-  const dEl = tEl - state.pitch;
-  if (Math.abs(dAz) > 88 || Math.abs(dEl) > 88) return null;
+// Project a world (azimuth, elevation) target to screen coords.
+// Returns null when behind camera or far off-screen.
+function projectTarget(tAz, tEl, w, h, fovH_deg, fovV_deg) {
+  const dAz = Math.abs(angDiff(tAz, state.yaw));
+  const dEl = Math.abs(tEl - state.pitch);
+  if (dAz > 92 || dEl > 92) return null;
 
-  const tanFovH = Math.tan(fovH * Math.PI / 360);
-  const tanFovV = Math.tan(fovV * Math.PI / 360);
+  const tAzR = tAz * Math.PI / 180;
+  const tElR = tEl * Math.PI / 180;
+  // world coords: x=right, y=up, z=forward
+  const wx = Math.sin(tAzR) * Math.cos(tElR);
+  const wy = Math.sin(tElR);
+  const wz = Math.cos(tAzR) * Math.cos(tElR);
 
-  // build target unit vector in world coords (camera at origin, looking at +Z when yaw=pitch=0)
-  // world.x = sin(az) cos(el), world.y = sin(el), world.z = cos(az) cos(el)
-  const wxA = Math.sin(tAz * Math.PI / 180) * Math.cos(tEl * Math.PI / 180);
-  const wy  = Math.sin(tEl * Math.PI / 180);
-  const wzA = Math.cos(tAz * Math.PI / 180) * Math.cos(tEl * Math.PI / 180);
-
-  // rotate into camera frame: R_x(pitch) · R_y(-yaw)
+  // rotate world into camera frame: R_y(-yaw), then R_x(-pitch)
   const yawR = state.yaw * Math.PI / 180;
   const pitR = state.pitch * Math.PI / 180;
   const cA = Math.cos(yawR), sA = Math.sin(yawR);
   const cE = Math.cos(pitR), sE = Math.sin(pitR);
 
-  // R_y(-yaw): x' = x cosA - z sinA, z' = x sinA + z cosA
-  const x1 = wxA * cA - wzA * sA;
-  const z1 = wxA * sA + wzA * cA;
-  const y1 = wy;
-  // R_x(pitch):  y'' = y cosE - z sinE,   z'' = y sinE + z cosE
-  const y2 = y1 * cE - z1 * sE;
-  const z2 = y1 * sE + z1 * cE;
-  if (z2 <= 0.01) return null;
+  const cx_v = wx * cA - wz * sA;        // P_cam_x
+  const u    = wx * sA + wz * cA;         // intermediate
+  const cy_v = wy * cE - u  * sE;         // P_cam_y
+  const cz_v = wy * sE + u  * cE;         // P_cam_z
+  if (cz_v <= 0.02) return null;
 
-  const px = x1 / z2;
-  const py = y2 / z2;
-  if (Math.abs(px) > tanFovH * 1.4 || Math.abs(py) > tanFovV * 1.4) return null;
+  const tanH2 = Math.tan(fovH_deg * Math.PI / 360);
+  const tanV2 = Math.tan(fovV_deg * Math.PI / 360);
+  const px = cx_v / cz_v;
+  const py = cy_v / cz_v;
+  if (Math.abs(px) > tanH2 * 1.6 || Math.abs(py) > tanV2 * 1.6) return null;
 
-  const sx = w/2 + (px / tanFovH) * (w/2);
-  const sy = h/2 - (py / tanFovV) * (h/2);
+  let sx = w/2 + (px / tanH2) * (w/2);
+  let sy = h/2 - (py / tanV2) * (h/2);
   return [sx, sy];
 }
 
@@ -1000,61 +1203,13 @@ function drawHud() {
   const w = c.clientWidth, h = c.clientHeight;
   ctx.clearRect(0, 0, w, h);
 
-  const fovH = state.fov;
-  // video element may be cover-cropped; use the visible aspect (the HUD canvas itself)
-  const aspect = h / w;
-  const fovV = 2 * Math.atan(Math.tan(fovH * Math.PI / 360) * aspect) * 180 / Math.PI;
-
-  // === draw targets ===
-  for (let i = 0; i < state.targets.length; i++) {
-    const t = state.targets[i];
-    const proj = projectTarget(t.az, t.el, w, h, fovH, fovV);
-    if (!proj) continue;
-    const [x, y] = proj;
-    const done = state.captures.some(c => c.targetIdx === i);
-    const isNext = i === state.targetIdx && !done;
-
-    if (done) {
-      // captured: green check
-      ctx.strokeStyle = 'rgba(111, 255, 142, 0.55)';
-      ctx.lineWidth = 1.4;
-      ctx.beginPath(); ctx.arc(x, y, 14, 0, Math.PI*2); ctx.stroke();
-      ctx.beginPath();
-      ctx.moveTo(x - 5, y); ctx.lineTo(x - 1, y + 4); ctx.lineTo(x + 6, y - 4);
-      ctx.stroke();
-    } else if (isNext) {
-      // active target: pulsing amber reticle
-      const p = (Math.sin(performance.now() / 220) + 1) * 0.5;
-      ctx.strokeStyle = '#ffb547';
-      ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.arc(x, y, 20 + p * 4, 0, Math.PI*2); ctx.stroke();
-      ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.arc(x, y, 4, 0, Math.PI*2); ctx.stroke();
-      // outer ticks at 45°
-      for (let k = 0; k < 4; k++) {
-        const a = k * Math.PI / 2 + Math.PI / 4;
-        ctx.beginPath();
-        ctx.moveTo(x + Math.cos(a) * 26, y + Math.sin(a) * 26);
-        ctx.lineTo(x + Math.cos(a) * 32, y + Math.sin(a) * 32);
-        ctx.stroke();
-      }
-      // label
-      ctx.fillStyle = '#ffb547';
-      ctx.font = '500 9px "IBM Plex Mono", monospace';
-      ctx.textAlign = 'center';
-      ctx.fillText(`${String(t.az).padStart(3,'0')}° / ${t.el>=0?'+':''}${t.el}°`, x, y - 38);
-    } else {
-      // pending future target: dim ring
-      ctx.strokeStyle = 'rgba(255, 181, 71, 0.22)';
-      ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.arc(x, y, 10, 0, Math.PI*2); ctx.stroke();
-    }
-  }
-
-  // === center reticle ===
+  const fovH = state.visFovH;
+  const fovV = state.visFovV;
   const cx = w / 2, cy = h / 2;
+
+  // === center reticle (always visible) ===
   ctx.strokeStyle = '#ffb547';
-  ctx.lineWidth = 1;
+  ctx.lineWidth = 1.2;
   ctx.beginPath();
   ctx.moveTo(cx - 22, cy); ctx.lineTo(cx - 7, cy);
   ctx.moveTo(cx + 7, cy);  ctx.lineTo(cx + 22, cy);
@@ -1064,32 +1219,22 @@ function drawHud() {
   ctx.fillStyle = '#ffb547';
   ctx.beginPath(); ctx.arc(cx, cy, 1.5, 0, Math.PI*2); ctx.fill();
 
-  // === horizon line where world el=0 sits ===
-  const tanFovV = Math.tan(fovV * Math.PI / 360);
-  const pitR = state.pitch * Math.PI / 180;
-  // horizon viewing angle from forward = -pitch
+  // === horizon line where absolute pitch = 0 ===
   if (Math.abs(state.pitch) < 80) {
-    const py = -Math.tan(-pitR);
+    const tanFovV = Math.tan(fovV * Math.PI / 360);
+    const py = -Math.tan(-state.pitch * Math.PI / 180);
     const horizonY = cy - (py / tanFovV) * (h/2);
     if (horizonY > 0 && horizonY < h) {
-      ctx.strokeStyle = 'rgba(255, 181, 71, 0.18)';
+      ctx.strokeStyle = 'rgba(255, 181, 71, 0.16)';
       ctx.setLineDash([4, 4]);
       ctx.beginPath();
       ctx.moveTo(0, horizonY); ctx.lineTo(w, horizonY);
       ctx.stroke();
       ctx.setLineDash([]);
-      // tick marks every 30°
-      ctx.fillStyle = 'rgba(255, 181, 71, 0.45)';
+      // small horizon glyph at edge
+      ctx.fillStyle = 'rgba(255, 181, 71, 0.4)';
       ctx.font = '400 8px "IBM Plex Mono", monospace';
-      ctx.textAlign = 'center';
-      for (let a = 0; a < 360; a += 30) {
-        const p = projectTarget(a, 0, w, h, fovH, fovV);
-        if (!p) continue;
-        const dAz = Math.abs(angDiff(a, state.yaw));
-        if (dAz > fovH * 0.6) continue;
-        ctx.fillRect(p[0] - 0.5, horizonY - 4, 1, 8);
-        ctx.fillText(String(a).padStart(3,'0'), p[0], horizonY + 16);
-      }
+      ctx.fillText('H', 6, horizonY - 4);
     }
   }
 
@@ -1099,23 +1244,137 @@ function drawHud() {
   ctx.lineWidth = 1;
   ctx.font = '400 8px "IBM Plex Mono", monospace';
   ctx.textAlign = 'left';
+  const tanFovV = Math.tan(fovV * Math.PI / 360);
   for (let el = -60; el <= 60; el += 30) {
     const dEl = el - state.pitch;
     if (Math.abs(dEl) > 80) continue;
     const py = Math.tan(dEl * Math.PI / 180);
     const y = cy - (py / tanFovV) * (h/2);
-    if (y < 30 || y > h - 30) continue;
+    if (y < 30 || y > h - 80) continue;
     ctx.beginPath();
     ctx.moveTo(14, y); ctx.lineTo(28, y);
     ctx.stroke();
     ctx.fillText((el>=0?'+':'') + el, 32, y + 3);
   }
+
+  // Targets only after calibration
+  if (!state.hasCalibrated) return;
+
+  // === draw target reticles ===
+  for (let i = 0; i < state.targets.length; i++) {
+    const t = state.targets[i];
+    const proj = projectTarget(t.az, t.el, w, h, fovH, fovV);
+    if (!proj) continue;
+    const [tx, ty] = proj;
+    const done = state.captures.some(c => c.targetIdx === i);
+    const isNext = i === state.targetIdx && !done;
+
+    if (done) {
+      ctx.strokeStyle = 'rgba(111, 255, 142, 0.55)';
+      ctx.lineWidth = 1.4;
+      ctx.beginPath(); ctx.arc(tx, ty, 14, 0, Math.PI*2); ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(tx - 5, ty); ctx.lineTo(tx - 1, ty + 4); ctx.lineTo(tx + 6, ty - 4);
+      ctx.stroke();
+    } else if (isNext) {
+      // pulsing amber active target
+      const p = (Math.sin(performance.now() / 220) + 1) * 0.5;
+      ctx.strokeStyle = '#ffb547';
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(tx, ty, 20 + p * 4, 0, Math.PI*2); ctx.stroke();
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.arc(tx, ty, 4, 0, Math.PI*2); ctx.stroke();
+      for (let k = 0; k < 4; k++) {
+        const a = k * Math.PI / 2 + Math.PI / 4;
+        ctx.beginPath();
+        ctx.moveTo(tx + Math.cos(a) * 26, ty + Math.sin(a) * 26);
+        ctx.lineTo(tx + Math.cos(a) * 32, ty + Math.sin(a) * 32);
+        ctx.stroke();
+      }
+      ctx.fillStyle = '#ffb547';
+      ctx.font = '500 9px "IBM Plex Mono", monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(`${String(t.az).padStart(3,'0')}° / ${t.el>=0?'+':''}${t.el}°`, tx, ty - 38);
+
+      // direction-of-rotation hint when target is off-screen edge
+    } else {
+      ctx.strokeStyle = 'rgba(255, 181, 71, 0.22)';
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.arc(tx, ty, 10, 0, Math.PI*2); ctx.stroke();
+    }
+  }
+
+  // === off-screen arrow toward next target ===
+  if (state.hasCalibrated && state.targetIdx < state.targets.length) {
+    const t = state.targets[state.targetIdx];
+    const proj = projectTarget(t.az, t.el, w, h, fovH, fovV);
+    if (!proj) {
+      // draw edge arrow
+      const dAz = angDiff(t.az, state.yaw);
+      const dEl = t.el - state.pitch;
+      // angle for arrow direction (atan2 of dAz, dEl reversed)
+      const angle = Math.atan2(-dEl, dAz);
+      const dist = Math.min(w, h) * 0.38;
+      const ax = cx + Math.cos(angle) * dist;
+      const ay = cy + Math.sin(angle) * dist;
+      ctx.fillStyle = '#ffb547';
+      ctx.save();
+      ctx.translate(ax, ay);
+      ctx.rotate(angle);
+      ctx.beginPath();
+      ctx.moveTo(14, 0); ctx.lineTo(-6, -8); ctx.lineTo(-6, 8); ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+      ctx.fillStyle = '#ffb547';
+      ctx.font = '500 9px "IBM Plex Mono", monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(`${Math.round(Math.abs(dAz))}° away`, ax, ay - 16);
+    }
+  }
 }
 
+function drawLevelBar() {
+  const c = $('levelBar');
+  const ctx = c.getContext('2d');
+  const w = c.width, h = c.height;
+  ctx.clearRect(0, 0, w, h);
+
+  // base line
+  ctx.strokeStyle = 'rgba(255,181,71,0.25)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(0, h/2); ctx.lineTo(w, h/2);
+  ctx.stroke();
+
+  // tick marks
+  for (let i = -2; i <= 2; i++) {
+    const x = w/2 + i * (w/5);
+    ctx.beginPath();
+    ctx.moveTo(x, h/2 - 3); ctx.lineTo(x, h/2 + 3);
+    ctx.stroke();
+  }
+
+  // bubble — drifts based on roll
+  const rollClamp = Math.max(-30, Math.min(30, state.roll));
+  const bubbleX = w/2 - (rollClamp / 30) * (w/2 - 12);
+  const level = Math.abs(state.roll) < 3;
+  ctx.fillStyle = level ? '#6fff8e' : '#ffb547';
+  ctx.beginPath();
+  ctx.arc(bubbleX, h/2, 5, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = 'rgba(255,181,71,0.6)';
+  ctx.font = '500 8px "IBM Plex Mono", monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('LEVEL', w/2, h - 2);
+}
+
+// ============================================================
+// CAPTURE
+// ============================================================
 function checkAutoCapture() {
   if (state.capturing) return;
   if (state.targetIdx >= state.targets.length) return;
-  if (state.yawRef == null) return;
 
   const t = state.targets[state.targetIdx];
   const dAz = Math.abs(angDiff(t.az, state.yaw));
@@ -1132,9 +1391,36 @@ function checkAutoCapture() {
   }
 }
 
-// ============================================================
-// CAPTURE
-// ============================================================
+// First (calibrating) capture — defines az=0
+async function performInitialCapture() {
+  if (state.rawYaw == null) {
+    // sensors not ready yet — give them a moment
+    $('shutterPrompt').innerHTML = 'Waiting for sensor… <small>hold steady</small>';
+    let waited = 0;
+    while (state.rawYaw == null && waited < 2500) {
+      await new Promise(r => setTimeout(r, 100));
+      waited += 100;
+    }
+    if (state.rawYaw == null) {
+      $('shutterPrompt').innerHTML = 'Motion sensor unavailable <small>try refreshing</small>';
+      return;
+    }
+  }
+  // set the reference: this raw yaw == relative yaw 0
+  state.yawRef = state.rawYaw;
+  state.yaw = 0;
+  state.hasCalibrated = true;
+
+  // capture the first frame manually
+  await attemptCapture(false);
+
+  // hide the shutter UI, enable manual & finish
+  $('shutterWrap').classList.add('hidden');
+  $('manualBtn').classList.remove('disabled');
+  $('finishBtn').classList.remove('disabled');
+  $('hintText').innerHTML = 'Align reticle to <span>amber target</span> · hold steady';
+}
+
 async function attemptCapture(manual) {
   if (state.capturing || state.targetIdx >= state.targets.length) return;
   state.capturing = true;
@@ -1143,11 +1429,22 @@ async function attemptCapture(manual) {
   $('flash').classList.add('show');
   setTimeout(() => $('flash').classList.remove('show'), 260);
 
+  // Capture only the VISIBLE area (cropped per object-fit: cover)
   const v = $('video');
+  const c = $('hud');
+  const vw = v.videoWidth || 1080, vh = v.videoHeight || 1920;
+  const sw = c.clientWidth, sh = c.clientHeight;
+
+  const scale = Math.max(sw / vw, sh / vh);
+  const visW = sw / scale;
+  const visH = sh / scale;
+  const cropX = (vw - visW) / 2;
+  const cropY = (vh - visH) / 2;
+
   const cnv = document.createElement('canvas');
-  cnv.width = v.videoWidth || 1080;
-  cnv.height = v.videoHeight || 1920;
-  cnv.getContext('2d').drawImage(v, 0, 0);
+  cnv.width = Math.round(visW);
+  cnv.height = Math.round(visH);
+  cnv.getContext('2d').drawImage(v, cropX, cropY, visW, visH, 0, 0, cnv.width, cnv.height);
 
   const t = state.targets[state.targetIdx];
   state.captures.push({
@@ -1156,7 +1453,9 @@ async function attemptCapture(manual) {
     targetEl: t.el,
     az: state.yaw,
     el: state.pitch,
-    fov: state.fov,
+    roll: state.roll,
+    fov: state.visFovH,            // store the FOV of what was actually captured
+    fovStated: state.fov,
     w: cnv.width, h: cnv.height,
     canvas: cnv,
     manual: manual,
@@ -1202,7 +1501,6 @@ async function finishCapture(complete) {
   $('workOverlay').style.display = 'flex';
   $('workCount').textContent = state.captures.length;
   $('workPct').textContent = '0%';
-
   await new Promise(r => setTimeout(r, 50));
 
   await composeEquirectangular((pct) => {
@@ -1239,11 +1537,8 @@ async function composeEquirectangular(progressCb) {
   out.width = W; out.height = H;
   const ctx = out.getContext('2d');
 
-  // background
   ctx.fillStyle = '#0a0908';
   ctx.fillRect(0, 0, W, H);
-
-  // faint reference grid
   ctx.strokeStyle = 'rgba(255,181,71,0.05)';
   ctx.lineWidth = 1;
   for (let a = 0; a < 360; a += 30) {
@@ -1258,7 +1553,7 @@ async function composeEquirectangular(progressCb) {
   for (let i = 0; i < state.captures.length; i++) {
     await placeCapture(ctx, W, H, state.captures[i]);
     if (progressCb) progressCb((i + 1) / state.captures.length);
-    await new Promise(r => setTimeout(r, 0));   // yield to UI
+    await new Promise(r => setTimeout(r, 0));
   }
 }
 
@@ -1270,15 +1565,14 @@ function placeCapture(ctx, W, H, cap) {
     const tanH2 = Math.tan(fovH / 2);
     const tanV2 = Math.tan(fovV / 2);
 
-    // downsample source
     const SRC_W = Math.min(640, cap.w);
     const SRC_H = Math.round(SRC_W * cap.h / cap.w);
     const tmp = document.createElement('canvas');
     tmp.width = SRC_W; tmp.height = SRC_H;
     tmp.getContext('2d').drawImage(cap.canvas, 0, 0, SRC_W, SRC_H);
     const srcData = tmp.getContext('2d').getImageData(0, 0, SRC_W, SRC_H);
+    const srcPix = srcData.data;
 
-    // bounding region on equirect (lat/lon)
     const halfFovH_deg = cap.fov / 2;
     const halfFovV_deg = fovV * 180 / Math.PI / 2;
     const margin = 4;
@@ -1287,41 +1581,32 @@ function placeCapture(ctx, W, H, cap) {
     const elMax = Math.min( 90, cap.el + halfFovV_deg + margin);
     const yStart = Math.max(0, Math.floor((1 - (elMax + 90) / 180) * H));
     const yEnd   = Math.min(H, Math.ceil ((1 - (elMin + 90) / 180) * H));
+    if (yEnd <= yStart) { resolve(); return; }
 
-    // longitude span widens near poles
     let lonHalf;
-    if (Math.abs(cap.el) + halfFovV_deg > 85) {
-      lonHalf = 180;  // covers all longitudes
-    } else {
+    if (Math.abs(cap.el) + halfFovV_deg > 85) lonHalf = 180;
+    else {
       lonHalf = (halfFovH_deg + margin) / Math.cos(Math.abs(cap.el) * Math.PI / 180);
       lonHalf = Math.min(180, lonHalf);
     }
 
-    // normalize cap.az to [-180, 180]
     let azC = cap.az;
     while (azC >  180) azC -= 360;
     while (azC <= -180) azC += 360;
 
-    // get the existing equirect strip we'll modify
     const stripH = yEnd - yStart;
-    if (stripH <= 0) { resolve(); return; }
     const outImg = ctx.getImageData(0, yStart, W, stripH);
-    const srcPix = srcData.data;
     const outPix = outImg.data;
 
-    // rotation matrix (world → camera)
     const yawR = cap.az * Math.PI / 180;
     const pitR = cap.el * Math.PI / 180;
     const cA = Math.cos(yawR), sA = Math.sin(yawR);
     const cE = Math.cos(pitR), sE = Math.sin(pitR);
 
-    // x ranges to iterate (handle wraparound)
-    const lonMin = azC - lonHalf;
-    const lonMax = azC + lonHalf;
+    const lonMin = azC - lonHalf, lonMax = azC + lonHalf;
     const ranges = [];
-    if (lonHalf >= 180) {
-      ranges.push([0, W]);
-    } else if (lonMin < -180) {
+    if (lonHalf >= 180) ranges.push([0, W]);
+    else if (lonMin < -180) {
       ranges.push([Math.floor(((lonMin + 360) + 180) / 360 * W), W]);
       ranges.push([0, Math.ceil((lonMax + 180) / 360 * W)]);
     } else if (lonMax > 180) {
@@ -1336,7 +1621,6 @@ function placeCapture(ctx, W, H, cap) {
       const xs = Math.max(0, xStart);
       const xe = Math.min(W, xEnd);
       for (let y = yStart; y < yEnd; y++) {
-        // pixel centre
         const lat = (1 - (y + 0.5) / H) * 180 - 90;
         const latR = lat * Math.PI / 180;
         const sinLat = Math.sin(latR), cosLat = Math.cos(latR);
@@ -1345,30 +1629,24 @@ function placeCapture(ctx, W, H, cap) {
         for (let x = xs; x < xe; x++) {
           const lon = ((x + 0.5) / W) * 360 - 180;
           const lonR = lon * Math.PI / 180;
-
-          // world unit vector — pano convention:
-          //   lon = 0 → +Z, lon = 90 → +X, lat = 90 → +Y
           const wx = cosLat * Math.sin(lonR);
           const wy = sinLat;
           const wz = cosLat * Math.cos(lonR);
 
-          // world → camera: R_y(-yaw) then R_x(pitch)
-          const x1 = wx * cA - wz * sA;
-          const z1 = wx * sA + wz * cA;
-          const y1 = wy;
-          const y2 = y1 * cE - z1 * sE;
-          const z2 = y1 * sE + z1 * cE;
-          if (z2 <= 0.01) continue;
+          const cx_v = wx * cA - wz * sA;
+          const u    = wx * sA + wz * cA;
+          const cy_v = wy * cE - u  * sE;
+          const cz_v = wy * sE + u  * cE;
+          if (cz_v <= 0.01) continue;
 
-          const px = x1 / z2;
-          const py = y2 / z2;
+          const px = cx_v / cz_v;
+          const py = cy_v / cz_v;
           if (Math.abs(px) > tanH2 || Math.abs(py) > tanV2) continue;
 
-          // map to source pixel
-          const u = (px / tanH2 + 1) * 0.5;
-          const v = (1 - py / tanV2) * 0.5;
-          const sx = Math.floor(u * SRC_W);
-          const sy = Math.floor(v * SRC_H);
+          const u01 = (px / tanH2 + 1) * 0.5;
+          const v01 = (1 - py / tanV2) * 0.5;
+          const sx = Math.floor(u01 * SRC_W);
+          const sy = Math.floor(v01 * SRC_H);
           if (sx < 0 || sx >= SRC_W || sy < 0 || sy >= SRC_H) continue;
 
           const si = (sy * SRC_W + sx) * 4;
@@ -1413,19 +1691,22 @@ async function downloadZip() {
     return;
   }
   const btn = $('dlZip');
-  const originalText = btn.querySelector('span').textContent;
-  btn.querySelector('span').textContent = 'Building zip…';
+  const span = btn.querySelector('span');
+  const orig = span.textContent;
+  span.textContent = 'Building zip…';
   btn.classList.add('disabled');
 
   try {
     const zip = new JSZip();
     const meta = {
       generator: 'Theodolite Panorama Capture',
-      version: '1.0',
+      version: '2.0',
       timestamp: new Date().toISOString(),
       mode: state.mode,
       mode_label: MODES[state.mode].label,
-      fov_horizontal_deg: state.fov,
+      camera_fov_h_deg_stated: state.fov,
+      visible_fov_h_deg: state.visFovH,
+      visible_fov_v_deg: state.visFovV,
       tolerance_deg: state.tol,
       yaw_source: state.usingCompass ? 'compass-true-north' : 'device-relative',
       frames: [],
@@ -1443,7 +1724,9 @@ async function downloadZip() {
         target_el_deg: c.targetEl,
         actual_az_deg: +c.az.toFixed(2),
         actual_el_deg: +c.el.toFixed(2),
-        fov_h_deg: c.fov,
+        actual_roll_deg: +c.roll.toFixed(2),
+        fov_h_deg: +c.fov.toFixed(2),
+        fov_h_deg_camera_full: c.fovStated,
         width: c.w,
         height: c.h,
         manual_capture: c.manual,
@@ -1451,7 +1734,6 @@ async function downloadZip() {
       });
     }
 
-    // also include the composite
     const comp = await new Promise(r => $('compositeCanvas').toBlob(r, 'image/jpeg', 0.92));
     zip.file('composite_equirect.jpg', comp);
     zip.file('metadata.json', JSON.stringify(meta, null, 2));
@@ -1467,39 +1749,40 @@ async function downloadZip() {
   } catch (e) {
     alert('Zip failed: ' + e.message);
   } finally {
-    btn.querySelector('span').textContent = originalText;
+    span.textContent = orig;
     btn.classList.remove('disabled');
   }
 }
 
 function readmeText() {
-return `THEODOLITE PANORAMA CAPTURE
-============================
+return `THEODOLITE PANORAMA CAPTURE  (v2)
+==================================
 
-This zip contains the raw frames from a guided panorama capture session,
-along with metadata.json describing each frame's azimuth, elevation, and
-horizontal FOV in degrees.
+Each frame_*.jpg is a cropped-to-visible-area capture taken when the
+phone reticle was aligned to a precomputed target direction.
+metadata.json gives per-frame yaw, pitch, roll, and FOV in degrees.
+
+Coordinates:
+  azimuth (az):   0 = your starting direction (set by first shutter press)
+                  increases clockwise (turning right = +)
+  elevation (el): 0 = horizon, +90 = zenith, -90 = nadir
+  roll: phone tilt around line-of-sight (0 = held vertical)
+  fov_h_deg: actual horizontal FOV of the captured (cropped) image
 
 To stitch in Hugin:
-  1. Open Hugin -> Add images... -> select all frame_*.jpg files.
-  2. Set lens type "Normal (rectilinear)" and HFOV to the value in metadata.
-  3. Use the .pto template generator or manually set yaw/pitch from
-     metadata.json (actual_az_deg / actual_el_deg).
-  4. Run "Align..." to refine, then "Create panorama".
+  1. File > New project. Add images... select all frame_*.jpg.
+  2. Lens type "Normal (rectilinear)". HFOV = fov_h_deg from metadata.
+  3. Image Position tab: set yaw = actual_az_deg, pitch = actual_el_deg,
+     roll = actual_roll_deg for each image.
+  4. Optimize > Geometric. Stitch > Equirectangular.
 
 To stitch in PTGui:
-  1. New project, load images, set the lens FOV.
-  2. Image Parameters tab: paste yaw (=actual_az_deg) and pitch
-     (=actual_el_deg) values from metadata.json.
+  1. Load images, set lens HFOV from metadata.
+  2. Image Parameters: paste yaw/pitch/roll from metadata.json.
   3. Optimize -> generate.
 
-Coordinate conventions used here:
-  azimuth: 0 = start direction, increases clockwise (yaw right = +)
-  elevation: 0 = horizon, +90 = zenith, -90 = nadir
-  Frame is rectilinear (pinhole), horizontal FOV stored in metadata.
-
-composite_equirect.jpg is a quick in-browser stitch — okay for previews,
-not seamless. Use proper stitching software for final output.
+composite_equirect.jpg is a quick in-browser preview stitch — okay for
+checking coverage but not seamless. Use Hugin/PTGui for a real result.
 `;
 }
 
