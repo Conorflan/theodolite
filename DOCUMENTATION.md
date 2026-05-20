@@ -202,19 +202,44 @@ two agree to ~1e-15). So the roll support is a strict superset of the
 previous behaviour. If you change `cameraBasis`, re-check that
 invariant.
 
-### 4.6 The visible FOV problem (`updateVisibleFOV`)
+### 4.6 Phone orientation, the FOV axis, and the visible FOV
 
-The `<video>` element uses `object-fit: cover`, which **crops** the
-camera image to fill the screen. The FOV visible on screen is therefore
-*narrower* than the camera's native FOV. The reticles must be projected
-with the visible FOV, not the native one, or they will not sit on the
+**The app shoots in portrait.** The manifest pins `orientation:
+portrait` and the capture screen warns if the phone is rotated to
+landscape. Elevation tracking depends on gravity via `beta`, and the
+whole HUD layout assumes an upright phone.
+
+**What `state.fov` means.** `state.fov` is the lens FOV across the
+camera's **wide sensor axis** — the single number lens makers publish
+(e.g. a phone main camera ≈ 78°). This is a property of the *lens*, not
+of how the phone is held.
+
+**The portrait twist.** Hold the phone in portrait and that wide sensor
+axis runs *top-to-bottom* on screen. So the published "horizontal" lens
+FOV becomes the app's **vertical** on-screen FOV (`visFovV`), and the
+narrower left-right on-screen FOV (`visFovH`) is derived from it and the
+video aspect ratio. An earlier UI label ("CAM FOV (H)") wrongly implied
+the number was the on-screen horizontal extent; it is now labelled
+"LENS FOV (WIDE AXIS)" to remove the ambiguity.
+
+**The cover crop.** The `<video>` element uses `object-fit: cover`,
+which *crops* the camera image to fill the screen. The FOV actually
+visible is therefore narrower than the lens's full FOV. Reticles must
+be projected with the *visible* FOV or they will not sit on the
 real-world features they represent.
 
-`updateVisibleFOV()` computes `visFovH` / `visFovV` from the
-cover-crop maths (native video dimensions vs screen dimensions). The
-reticles use these. `attemptCapture()` crops each saved frame to the
-same visible area and stores the visible FOV with it, so the composite
-reprojects exactly what the user framed.
+`updateVisibleFOV()` does this in an orientation-agnostic way. Browsers
+are inconsistent about whether they report a portrait stream as
+`videoWidth>videoHeight` or the reverse, so the function first
+normalises the video dimensions to portrait (short edge = width, long
+edge = height). The long edge maps to screen-vertical and carries
+`state.fov`; the short edge maps to screen-horizontal. It then applies
+the cover-crop ratio to get `visFovH` / `visFovV`. The result is
+identical no matter which way the browser reported the video.
+
+`attemptCapture()` crops each saved frame to the same visible area and
+stores the visible FOV with it, so the composite reprojects exactly
+what the user framed.
 
 ---
 

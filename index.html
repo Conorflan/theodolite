@@ -745,7 +745,7 @@ body::before {
     <div class="section-label">PARAMETERS</div>
     <div class="params">
       <div class="param">
-        <div class="k">CAM FOV (H)</div>
+        <div class="k">LENS FOV (WIDE AXIS)</div>
         <div class="v"><span id="fovVal">68</span><small>°</small></div>
         <div class="controls">
           <button class="btn-tiny" data-fov="-2">−</button>
@@ -770,7 +770,14 @@ body::before {
     </div>
 
     <div class="note">
-      <b>Camera &amp; FOV must match.</b> Pick the lens above, then set the FOV preset for that same lens — if the FOV is wrong the reticle overlay won't line up. <code>Detect</code> tries to label each lens and guess its FOV. When unsure, the <b>Main</b> lens at ~78° is the safe choice.
+      <b>Hold the phone in portrait.</b> The value above is the lens's
+      FOV across its <b>wide sensor axis</b> — the figure manufacturers
+      publish (e.g. a main camera ≈ 78°). In portrait that wide axis
+      runs <em>top-to-bottom</em> on your screen, so it becomes your
+      <b>vertical</b> on-screen view; the narrower left-right view is
+      computed from it and the video's aspect ratio. Pick the lens, set
+      the matching preset — if it's wrong the overlay won't line up.
+      When unsure, <b>Main ~78°</b> is the safe choice.
     </div>
 
     <div class="section-label">MOTION TRACKING</div>
@@ -1561,26 +1568,37 @@ function onOrientation(e, isAbsolute) {
 // ============================================================
 function updateVisibleFOV() {
   const v = $('video');
-  const vw = v.videoWidth, vh = v.videoHeight;
+  let vw = v.videoWidth, vh = v.videoHeight;
   const sw = window.innerWidth, sh = window.innerHeight;
   if (!vw || !vh || !sw || !sh) {
-    state.visFovH = state.fov;
-    state.visFovV = state.fov * sh / Math.max(1, sw);
+    // No video yet: assume portrait, lens FOV is the vertical (long) axis.
+    state.visFovV = state.fov;
+    state.visFovH = state.fov * sw / Math.max(1, sh);
     return;
   }
-  // cover scales so larger of (sw/vw, sh/vh) fills
+
+  // The screen is portrait-locked, and the camera frame is displayed
+  // upright, so the video's LONG edge always maps to screen-vertical
+  // and its SHORT edge to screen-horizontal — regardless of whether
+  // the browser reports videoWidth/Height as landscape or portrait.
+  // Normalise to (short = width, long = height) so the cover-crop
+  // maths below is orientation-agnostic.
+  if (vw > vh) { const t = vw; vw = vh; vh = t; }
+
+  // state.fov is the lens FOV across its WIDE sensor axis (the figure
+  // lens makers publish). That wide axis is the video's LONG edge,
+  // which we've put on screen-vertical — so it drives visFovV.
+  const tanFullLong  = Math.tan(state.fov * Math.PI / 360); // → vertical
+  const tanFullShort = tanFullLong * (vw / vh);             // → horizontal
+
+  // object-fit: cover crops the (normalised-portrait) video to fill.
   const scale = Math.max(sw / vw, sh / vh);
-  const visVideoW = sw / scale;   // visible width in video pixel units
-  const visVideoH = sh / scale;
+  const visVideoW = sw / scale;   // visible extent in video px (screen-horizontal)
+  const visVideoH = sh / scale;   // visible extent in video px (screen-vertical)
 
-  const tanFullH = Math.tan(state.fov * Math.PI / 360);
-  // visible width as fraction of full → scale tan
-  const tanVisH = tanFullH * (visVideoW / vw);
+  const tanVisH = tanFullShort * (visVideoW / vw);
+  const tanVisV = tanFullLong  * (visVideoH / vh);
   state.visFovH = 2 * Math.atan(tanVisH) * 180 / Math.PI;
-
-  // full vertical FOV from full horizontal + video aspect
-  const tanFullV = tanFullH * (vh / vw);
-  const tanVisV = tanFullV * (visVideoH / vh);
   state.visFovV = 2 * Math.atan(tanVisV) * 180 / Math.PI;
 }
 
