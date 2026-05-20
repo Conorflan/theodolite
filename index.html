@@ -880,7 +880,15 @@ body::before {
     </div>
 
     <div class="note" style="margin-top: 14px;">
-      <b>For a clean stitch</b> feed the frame zip into <b>Hugin</b> or <b>PTGui</b>. <code>metadata.json</code> lists each frame's yaw/pitch/FOV so the software can skip feature matching if you want.
+      <b>This preview is a pose-only reprojection</b> — each frame is
+      placed from its sensor azimuth/elevation/roll assuming a perfect
+      rectilinear lens. Residual misalignment is normal: it comes from
+      lens distortion, FOV estimate error, and parallax, none of which
+      can be solved without feature matching. <b>For a clean stitch</b>
+      feed the frame zip into <b>Hugin</b> or <b>PTGui</b> —
+      <code>metadata.json</code> gives each frame's yaw/pitch/roll/FOV
+      as a starting point, and they solve distortion and align on
+      image features.
     </div>
   </div>
 
@@ -1413,22 +1421,80 @@ function smoothAngle(curr, target, dt) {
 // it. The look vector is continuous through the singularity.
 //
 // Device axes: x=right, y=top-of-screen, z=out-of-screen-toward-user.
-// The rear camera looks along device -z. In Earth axes X=east,
-// Y=north, Z=up, the camera direction is -(third column of R).
+// The rear camera looks along device -z. We build the camera basis
+// (forward / up / right) in the app world frame (x=right/east,
+// y=up, z=forward/north) and derive azimuth, elevation AND a true
+// optical-axis roll. gamma is NOT the camera roll — at the near-
+// vertical pose used for panoramas it behaves as yaw — so roll must
+// be measured geometrically from the basis instead.
 function eulerToLook(alphaDeg, betaDeg, gammaDeg) {
   const a = alphaDeg * DEG, b = betaDeg * DEG, g = gammaDeg * DEG;
   const cA = Math.cos(a), sA = Math.sin(a);
   const cB = Math.cos(b), sB = Math.sin(b);
   const cG = Math.cos(g), sG = Math.sin(g);
 
-  const lookE = -(cA * sG + sA * sB * cG);   // east component
-  const lookN = -(sA * sG - cA * sB * cG);   // north component
-  const lookU = -(cB * cG);                  // up component
+  // camera forward (app frame x=right, y=up, z=forward)
+  const fX = -(cA * sG + sA * sB * cG);
+  const fY = -(cB * cG);
+  const fZ = -(sA * sG - cA * sB * cG);
+  // camera up (device +Y = top of screen), app frame
+  const uX = -sA * cB;
+  const uY = sB;
+  const uZ = cA * cB;
 
-  let az = Math.atan2(lookE, lookN) / DEG;   // 0=N, increases clockwise
+  let az = Math.atan2(fX, fZ) / DEG;          // 0=N, increases clockwise
   az = ((az % 360) + 360) % 360;
-  const el = Math.asin(Math.max(-1, Math.min(1, lookU))) / DEG;
-  return { az, el, nearPole: Math.abs(el) > 85 };
+  const el = Math.asin(Math.max(-1, Math.min(1, fY))) / DEG;
+
+  // Roll = signed angle of the camera "up" away from the level "up"
+  // (the component of world-up perpendicular to the look axis),
+  // measured around the look axis. Well-defined except looking
+  // straight up/down, where it's frozen at 0.
+  let roll = 0;
+  const d = fY;                                // worldUp · forward
+  let luX = -d * fX, luY = 1 - d * fY, luZ = -d * fZ;   // level up (unnorm.)
+  const luLen = Math.hypot(luX, luY, luZ);
+  if (luLen > 1e-3) {
+    luX /= luLen; luY /= luLen; luZ /= luLen;
+    // level right = forward × levelUp
+    const lrX = fY * luZ - fZ * luY;
+    const lrY = fZ * luX - fX * luZ;
+    const lrZ = fX * luY - fY * luX;
+    const dotUp    = uX * luX + uY * luY + uZ * luZ;
+    const dotRight = uX * lrX + uY * lrY + uZ * lrZ;
+    roll = Math.atan2(dotRight, dotUp) / DEG;
+  }
+  return { az, el, roll, nearPole: Math.abs(el) > 85 };
+}
+
+// Build the camera basis (orthonormal right/up/fwd in app world
+// coords) from azimuth/elevation/roll. At roll=0 this reproduces the
+// exact rotation the assembly used before; roll composes in as an
+// in-plane rotation around the look axis.
+function cameraBasis(azDeg, elDeg, rollDeg) {
+  const az = azDeg * DEG, el = elDeg * DEG, rl = rollDeg * DEG;
+  const ca = Math.cos(az), sa = Math.sin(az);
+  const ce = Math.cos(el), se = Math.sin(el);
+  const fwd = [sa * ce, se, ca * ce];
+  const right0 = [ca, 0, -sa];                 // horizontal, zero-roll right
+  // up0 = fwd × right0
+  const up0 = [
+    fwd[1] * right0[2] - fwd[2] * right0[1],
+    fwd[2] * right0[0] - fwd[0] * right0[2],
+    fwd[0] * right0[1] - fwd[1] * right0[0],
+  ];
+  const cr = Math.cos(rl), sr = Math.sin(rl);
+  const right = [
+    cr * right0[0] + sr * up0[0],
+    cr * right0[1] + sr * up0[1],
+    cr * right0[2] + sr * up0[2],
+  ];
+  const up = [
+    -sr * right0[0] + cr * up0[0],
+    -sr * right0[1] + cr * up0[1],
+    -sr * right0[2] + cr * up0[2],
+  ];
+  return { right, up, fwd };
 }
 
 // Wrappers that lock onto a single orientation source. The first
@@ -1472,8 +1538,9 @@ function onOrientation(e, isAbsolute) {
   state.pitch = (dt == null) ? look.el
                              : smoothScalar(state.pitch, look.el, dt);
 
-  // gamma still drives the bubble level (tilt around line of sight).
-  const rollRaw = e.gamma;
+  // True optical-axis roll (NOT gamma) — drives the level bubble and
+  // is applied in the composite so rolled frames are placed correctly.
+  const rollRaw = look.roll;
   state.roll = (dt == null) ? rollRaw : smoothScalar(state.roll, rollRaw, dt);
 
   // Azimuth: undefined at the poles (looking straight up/down), so
@@ -1601,16 +1668,11 @@ function projectTarget(tAz, tEl, w, h, fovH_deg, fovV_deg) {
   const wy = Math.sin(tElR);
   const wz = Math.cos(tAzR) * Math.cos(tElR);
 
-  // rotate world into camera frame: R_y(-yaw), then R_x(-pitch)
-  const yawR = state.yaw * Math.PI / 180;
-  const pitR = state.pitch * Math.PI / 180;
-  const cA = Math.cos(yawR), sA = Math.sin(yawR);
-  const cE = Math.cos(pitR), sE = Math.sin(pitR);
-
-  const cx_v = wx * cA - wz * sA;        // P_cam_x
-  const u    = wx * sA + wz * cA;         // intermediate
-  const cy_v = wy * cE - u  * sE;         // P_cam_y
-  const cz_v = wy * sE + u  * cE;         // P_cam_z
+  // Camera basis (includes roll). World→camera = project onto basis.
+  const B = cameraBasis(state.yaw, state.pitch, state.roll);
+  const cx_v = wx * B.right[0] + wy * B.right[1] + wz * B.right[2];
+  const cy_v = wx * B.up[0]    + wy * B.up[1]    + wz * B.up[2];
+  const cz_v = wx * B.fwd[0]   + wy * B.fwd[1]   + wz * B.fwd[2];
   if (cz_v <= 0.02) return null;
 
   const tanH2 = Math.tan(fovH_deg * Math.PI / 360);
@@ -2145,18 +2207,26 @@ function placeCapture(ctx, W, H, cap) {
 
     const halfFovH_deg = cap.fov / 2;
     const halfFovV_deg = fovV * 180 / Math.PI / 2;
+    // A rolled frame's footprint is the bounding box of a rotated
+    // rectangle, so its angular reach can be as large as the diagonal
+    // half-FOV. Pad the strip by that diagonal plus a margin so a
+    // rolled capture isn't clipped.
+    const diagHalf = Math.hypot(halfFovH_deg, halfFovV_deg);
+    const rollMag = Math.abs(cap.roll || 0);
+    const reach = rollMag > 0.5 ? diagHalf : halfFovV_deg;
     const margin = 4;
 
-    const elMin = Math.max(-90, cap.el - halfFovV_deg - margin);
-    const elMax = Math.min( 90, cap.el + halfFovV_deg + margin);
+    const elMin = Math.max(-90, cap.el - reach - margin);
+    const elMax = Math.min( 90, cap.el + reach + margin);
     const yStart = Math.max(0, Math.floor((1 - (elMax + 90) / 180) * H));
     const yEnd   = Math.min(H, Math.ceil ((1 - (elMin + 90) / 180) * H));
     if (yEnd <= yStart) { resolve(); return; }
 
+    const reachH = rollMag > 0.5 ? diagHalf : halfFovH_deg;
     let lonHalf;
-    if (Math.abs(cap.el) + halfFovV_deg > 85) lonHalf = 180;
+    if (Math.abs(cap.el) + reach > 85) lonHalf = 180;
     else {
-      lonHalf = (halfFovH_deg + margin) / Math.cos(Math.abs(cap.el) * Math.PI / 180);
+      lonHalf = (reachH + margin) / Math.cos(Math.abs(cap.el) * Math.PI / 180);
       lonHalf = Math.min(180, lonHalf);
     }
 
@@ -2168,10 +2238,13 @@ function placeCapture(ctx, W, H, cap) {
     const outImg = ctx.getImageData(0, yStart, W, stripH);
     const outPix = outImg.data;
 
-    const yawR = cap.az * Math.PI / 180;
-    const pitR = cap.el * Math.PI / 180;
-    const cA = Math.cos(yawR), sA = Math.sin(yawR);
-    const cE = Math.cos(pitR), sE = Math.sin(pitR);
+    // Camera basis including the frame's measured roll. World→camera
+    // is a projection onto these axes — handles roll, which the old
+    // az/el-only rotation silently ignored.
+    const B = cameraBasis(cap.az, cap.el, cap.roll || 0);
+    const rX = B.right[0], rY = B.right[1], rZ = B.right[2];
+    const uX = B.up[0],    uY = B.up[1],    uZ = B.up[2];
+    const fX = B.fwd[0],   fY = B.fwd[1],   fZ = B.fwd[2];
 
     const lonMin = azC - lonHalf, lonMax = azC + lonHalf;
     const ranges = [];
@@ -2203,10 +2276,9 @@ function placeCapture(ctx, W, H, cap) {
           const wy = sinLat;
           const wz = cosLat * Math.cos(lonR);
 
-          const cx_v = wx * cA - wz * sA;
-          const u    = wx * sA + wz * cA;
-          const cy_v = wy * cE - u  * sE;
-          const cz_v = wy * sE + u  * cE;
+          const cx_v = wx * rX + wy * rY + wz * rZ;
+          const cy_v = wx * uX + wy * uY + wz * uZ;
+          const cz_v = wx * fX + wy * fY + wz * fZ;
           if (cz_v <= 0.01) continue;
 
           const px = cx_v / cz_v;
