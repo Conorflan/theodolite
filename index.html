@@ -592,10 +592,16 @@ body::before {
 .review-preview {
   width: 100%;
   border: 1px solid var(--line-bright);
-  background: #000;
+  background: #0a0908;
   margin-top: 10px;
   position: relative;
   aspect-ratio: 2 / 1;
+}
+.review-preview.fisheye {
+  aspect-ratio: 1 / 1;
+  max-width: 420px;
+  margin-left: auto;
+  margin-right: auto;
 }
 .review-preview canvas { width: 100%; height: 100%; display: block; }
 .review-info {
@@ -849,6 +855,7 @@ body::before {
 
     <div class="review-preview">
       <canvas id="compositeCanvas"></canvas>
+      <canvas id="fisheyeCanvas" style="display:none;"></canvas>
     </div>
 
     <div class="review-info">
@@ -963,6 +970,7 @@ const state = {
   cameras: [],
   selectedCameraId: null,
   activeCameraSettings: {},
+  isFisheye: false,
 };
 
 // ============================================================
@@ -1031,6 +1039,40 @@ const MODES = {
       return arr;
     },
     glyph: '<svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1"><circle cx="16" cy="16" r="11"/><circle cx="16" cy="16" r="5"/><line x1="16" y1="5" x2="16" y2="11"/><line x1="16" y1="21" x2="16" y2="27"/><line x1="5" y1="16" x2="11" y2="16"/><line x1="21" y1="16" x2="27" y2="16"/></svg>',
+  },
+  fisheye: {
+    name: 'FISHEYE 180',
+    label: 'Fisheye 180° hemisphere',
+    desc: 'Forward dome — circular fisheye output',
+    fisheye: true,           // flag: render result as a circular fisheye
+    compute: () => {
+      // Targets covering the forward hemisphere (everything within 90°
+      // of the lens axis). Sampled as rings at increasing angle θ from
+      // the forward axis; ring with angle θ, roll φ → direction
+      // (sinθcosφ, sinθsinφ, cosθ) → converted to az/el.
+      const D = Math.PI / 180;
+      const arr = [{ az: 0, el: 0 }];              // lens axis / centre
+      const rings = [
+        { theta: 30, n: 6 },
+        { theta: 58, n: 10 },
+        { theta: 82, n: 14 },
+      ];
+      for (const ring of rings) {
+        for (let k = 0; k < ring.n; k++) {
+          const th = ring.theta * D;
+          const ph = (k / ring.n) * 2 * Math.PI;
+          const dx = Math.sin(th) * Math.cos(ph);
+          const dy = Math.sin(th) * Math.sin(ph);
+          const dz = Math.cos(th);
+          const el = Math.asin(Math.max(-1, Math.min(1, dy))) / D;
+          let az = Math.atan2(dx, dz) / D;
+          az = ((az % 360) + 360) % 360;
+          arr.push({ az, el: +el.toFixed(2) });
+        }
+      }
+      return arr;
+    },
+    glyph: '<svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1"><circle cx="16" cy="16" r="12"/><circle cx="16" cy="16" r="8" stroke-dasharray="2 2"/><circle cx="16" cy="16" r="3.5"/><line x1="16" y1="4" x2="16" y2="8"/><line x1="16" y1="24" x2="16" y2="28"/><line x1="4" y1="16" x2="8" y2="16"/><line x1="24" y1="16" x2="28" y2="16"/></svg>',
   },
 };
 
@@ -1937,12 +1979,110 @@ async function finishCapture(complete) {
     $('workPct').textContent = Math.floor(pct * 100) + '%';
   });
 
+  // For the fisheye mode, derive a circular 180° fisheye from the
+  // equirectangular master and show that as the primary result.
+  state.isFisheye = !!MODES[state.mode].fisheye;
+  if (state.isFisheye) {
+    const wrap = document.querySelector('#workOverlay h2');
+    if (wrap) wrap.textContent = 'Projecting fisheye…';
+    await new Promise(r => setTimeout(r, 30));
+    await renderFisheye((pct) => {
+      $('workPct').textContent = Math.floor(pct * 100) + '%';
+    });
+    if (wrap) wrap.textContent = 'Reprojecting frames…';
+  }
+
+  // Show the right canvas in the review preview
+  $('compositeCanvas').style.display = state.isFisheye ? 'none' : 'block';
+  $('fisheyeCanvas').style.display   = state.isFisheye ? 'block' : 'none';
+  document.querySelector('.review-preview').classList.toggle('fisheye', state.isFisheye);
+  $('dlComposite').querySelector('span').textContent =
+    state.isFisheye ? 'Fisheye 180° PNG (circular)' : 'Composite PNG (equirect)';
+
   $('rFrames').textContent = state.captures.length;
   $('rCov').innerHTML = Math.round(state.captures.length / state.targets.length * 100) + '<small>%</small>';
   $('rType').textContent = MODES[state.mode].name;
 
   $('workOverlay').style.display = 'none';
   showScreen('review');
+}
+
+// ============================================================
+// FISHEYE 180° PROJECTION
+// ============================================================
+// Re-projects the equirectangular master into a circular equidistant
+// (equiangular) 180° fisheye, centred on the forward direction.
+// Output: a square image with the hemisphere inscribed as a circle —
+// centre = lens axis (az 0, el 0), rim = 90° off axis.
+function renderFisheye(progressCb) {
+  return new Promise(resolve => {
+    const SIZE = 2048;
+    const src = $('compositeCanvas');
+    const W = src.width, H = src.height;
+    const srcPix = src.getContext('2d').getImageData(0, 0, W, H).data;
+
+    const out = $('fisheyeCanvas');
+    out.width = SIZE; out.height = SIZE;
+    const octx = out.getContext('2d');
+    const img = octx.createImageData(SIZE, SIZE);
+    const d = img.data;
+
+    const cx = SIZE / 2, cy = SIZE / 2, R = SIZE / 2;
+    const HALF = Math.PI / 2;          // 180° fisheye → 90° max angle
+    let y = 0;
+    const CHUNK = 64;
+
+    function step() {
+      const yEnd = Math.min(SIZE, y + CHUNK);
+      for (; y < yEnd; y++) {
+        for (let x = 0; x < SIZE; x++) {
+          const di = (y * SIZE + x) * 4;
+          const dx = x - cx, dy = y - cy;
+          const r = Math.hypot(dx, dy);
+          if (r > R) {                 // outside the image circle
+            d[di] = 10; d[di+1] = 9; d[di+2] = 8; d[di+3] = 255;
+            continue;
+          }
+          const rn = r / R;
+          const theta = rn * HALF;     // angle from lens axis
+          const phi = Math.atan2(-dy, dx);  // screen-up = world-up
+
+          // direction in world axes (x=east, y=up, z=forward)
+          const sT = Math.sin(theta), cT = Math.cos(theta);
+          const wx = sT * Math.cos(phi);
+          const wy = sT * Math.sin(phi);
+          const wz = cT;
+
+          const el = Math.asin(Math.max(-1, Math.min(1, wy)));
+          const lon = Math.atan2(wx, wz);   // 0 = forward
+
+          let ex = ((lon / Math.PI * 180 + 180) / 360) * W;
+          let ey = (1 - (el / Math.PI * 180 + 90) / 180) * H;
+          ex = ((ex % W) + W) % W;
+          ey = Math.max(0, Math.min(H - 1, ey));
+          const si = ((ey | 0) * W + (ex | 0)) * 4;
+          d[di]   = srcPix[si];
+          d[di+1] = srcPix[si+1];
+          d[di+2] = srcPix[si+2];
+          d[di+3] = 255;
+        }
+      }
+      if (progressCb) progressCb(y / SIZE);
+      if (y < SIZE) {
+        setTimeout(step, 0);
+      } else {
+        octx.putImageData(img, 0, 0);
+        // thin rim circle so the 180° boundary is visible
+        octx.strokeStyle = 'rgba(255,181,71,0.35)';
+        octx.lineWidth = 2;
+        octx.beginPath();
+        octx.arc(cx, cy, R - 1, 0, Math.PI * 2);
+        octx.stroke();
+        resolve();
+      }
+    }
+    step();
+  });
 }
 
 function stopStreams() {
@@ -2104,12 +2244,13 @@ function timestamp() {
 }
 
 function downloadComposite() {
-  const c = $('compositeCanvas');
+  const c = state.isFisheye ? $('fisheyeCanvas') : $('compositeCanvas');
+  const tag = state.isFisheye ? 'fisheye180' : state.mode;
   c.toBlob(blob => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `theodolite-${state.mode}-${timestamp()}.png`;
+    a.download = `theodolite-${tag}-${timestamp()}.png`;
     a.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }, 'image/png');
@@ -2135,6 +2276,8 @@ async function downloadZip() {
       timestamp: new Date().toISOString(),
       mode: state.mode,
       mode_label: MODES[state.mode].label,
+      output_projection: state.isFisheye
+        ? 'circular-fisheye-180-equidistant' : 'equirectangular',
       camera_fov_h_deg_stated: state.fov,
       camera_lens: selCam ? selCam.kind : 'unspecified',
       camera_label: selCam ? selCam.label : (state.activeCameraSettings.deviceId || ''),
@@ -2175,6 +2318,10 @@ async function downloadZip() {
 
     const comp = await new Promise(r => $('compositeCanvas').toBlob(r, 'image/jpeg', 0.92));
     zip.file('composite_equirect.jpg', comp);
+    if (state.isFisheye) {
+      const fish = await new Promise(r => $('fisheyeCanvas').toBlob(r, 'image/png'));
+      zip.file('fisheye_180.png', fish);
+    }
     zip.file('metadata.json', JSON.stringify(meta, null, 2));
     zip.file('README.txt', readmeText());
 
@@ -2222,6 +2369,11 @@ To stitch in PTGui:
 
 composite_equirect.jpg is a quick in-browser preview stitch — okay for
 checking coverage but not seamless. Use Hugin/PTGui for a real result.
+
+fisheye_180.png (fisheye mode only) is a circular equidistant 180°
+fisheye reprojected from the equirectangular composite. Centre = lens
+axis, rim = 90° off-axis. In Hugin/PTGui you can also export your own
+fisheye by setting the panorama output projection to "Fisheye" / 180°.
 `;
 }
 
