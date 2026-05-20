@@ -767,6 +767,17 @@ body::before {
       <b>Camera &amp; FOV must match.</b> Pick the lens above, then set the FOV preset for that same lens — if the FOV is wrong the reticle overlay won't line up. <code>Detect</code> tries to label each lens and guess its FOV. When unsure, the <b>Main</b> lens at ~78° is the safe choice.
     </div>
 
+    <div class="section-label">MOTION TRACKING</div>
+    <div class="fov-presets">
+      <span class="fov-presets-label">SENSOR SOURCE</span>
+      <button class="fov-preset" data-orient="auto">Auto</button>
+      <button class="fov-preset" data-orient="relative">Gyro</button>
+      <button class="fov-preset" data-orient="absolute">Compass</button>
+    </div>
+    <div class="note">
+      <b>Gyro</b> (recommended) tracks rotation with the gyroscope only — very smooth, no compass jumps, drifts a few degrees over several minutes. <b>Compass</b> adds the magnetometer for true-north lock but jumps if there's magnetic interference (metal, magnets, some cases). <b>Auto</b> prefers Gyro. Since you set 0° with the shutter, Gyro is usually best. Use the <code>diagnostic.html</code> page to test your sensors.
+    </div>
+
     <div class="note">
       <b>How it works:</b> point your phone at where you want the panorama to start, then tap the amber <b>shutter</b>. That frame defines direction <code>0°</code>. Reticles appear for the remaining targets — align reticle to target, hold steady ~½ second, auto-capture fires. Keep the phone vertical and rotate around <em>your own axis</em>, not the phone's.
     </div>
@@ -938,6 +949,8 @@ const state = {
   onTargetSince: 0,
   lastSensorT: 0,         // for time-based sensor smoothing
   orientSource: null,     // locked orientation event source
+  orientPref: 'auto',     // 'auto' | 'relative' | 'absolute'
+  lastGoodAz: 0,          // last azimuth away from the poles
   captureStartT: 0,       // when capture session began (for source grace period)
   capturing: false,
   stream: null,
@@ -1077,6 +1090,18 @@ document.querySelectorAll('[data-fov]').forEach(b => {
 document.querySelectorAll('[data-fovset]').forEach(b => {
   b.addEventListener('click', () => setFov(parseInt(b.dataset.fovset)));
 });
+document.querySelectorAll('[data-orient]').forEach(b => {
+  b.addEventListener('click', () => {
+    state.orientPref = b.dataset.orient;
+    document.querySelectorAll('[data-orient]').forEach(x =>
+      x.classList.toggle('active', x.dataset.orient === state.orientPref));
+  });
+});
+// default selection highlight
+(function(){
+  const d = document.querySelector('[data-orient="auto"]');
+  if (d) d.classList.add('active');
+})();
 document.querySelectorAll('[data-tol]').forEach(b => {
   b.addEventListener('click', () => {
     state.tol = Math.max(1, Math.min(15, state.tol + parseInt(b.dataset.tol)));
@@ -1318,6 +1343,7 @@ async function startCapture() {
 // alpha = 1 - exp(-dt/TAU). Smaller TAU = snappier, more jitter.
 // TAU ≈ 80ms feels stable without much perceptible lag.
 const SMOOTH_TAU_MS = 80;
+const DEG = Math.PI / 180;
 
 function smoothScalar(curr, target, dt) {
   const a = 1 - Math.exp(-dt / SMOOTH_TAU_MS);
@@ -1334,61 +1360,90 @@ function smoothAngle(curr, target, dt) {
   return next;
 }
 
+// --- The important fix --------------------------------------
+// DeviceOrientationEvent gives Euler angles (alpha, beta, gamma).
+// Using alpha directly as yaw fails badly when the phone is held
+// vertically (beta ≈ 90°) — that's a gimbal-lock singularity, and
+// tiny movements make alpha jump or flip, so the overlay "springs in
+// contradictory directions". The robust approach: build the full
+// rotation matrix R = Rz(α)·Rx(β)·Ry(γ), compute the *camera look
+// direction* as a 3D unit vector, and derive azimuth/elevation from
+// it. The look vector is continuous through the singularity.
+//
+// Device axes: x=right, y=top-of-screen, z=out-of-screen-toward-user.
+// The rear camera looks along device -z. In Earth axes X=east,
+// Y=north, Z=up, the camera direction is -(third column of R).
+function eulerToLook(alphaDeg, betaDeg, gammaDeg) {
+  const a = alphaDeg * DEG, b = betaDeg * DEG, g = gammaDeg * DEG;
+  const cA = Math.cos(a), sA = Math.sin(a);
+  const cB = Math.cos(b), sB = Math.sin(b);
+  const cG = Math.cos(g), sG = Math.sin(g);
+
+  const lookE = -(cA * sG + sA * sB * cG);   // east component
+  const lookN = -(sA * sG - cA * sB * cG);   // north component
+  const lookU = -(cB * cG);                  // up component
+
+  let az = Math.atan2(lookE, lookN) / DEG;   // 0=N, increases clockwise
+  az = ((az % 360) + 360) % 360;
+  const el = Math.asin(Math.max(-1, Math.min(1, lookU))) / DEG;
+  return { az, el, nearPole: Math.abs(el) > 85 };
+}
+
 // Wrappers that lock onto a single orientation source. The first
 // listener to receive a usable event "wins"; the other is ignored for
 // the rest of the session so the two streams can't fight each other.
+// state.orientPref ('auto'|'relative'|'absolute') decides preference.
 function onOrientationAbsolute(e) {
-  if (e.alpha == null && e.beta == null) return;
-  if (state.orientSource === 'relative') return;   // already committed elsewhere
+  if (e.alpha == null || e.beta == null || e.gamma == null) return;
+  if (state.orientPref === 'relative') return;     // user forced gyro
+  if (state.orientSource === 'relative') return;
   state.orientSource = 'absolute';
   onOrientation(e, true);
 }
 function onOrientationRelative(e) {
-  if (e.alpha == null && e.beta == null) return;
-  if (state.orientSource === 'absolute') return;   // absolute wins if present
-  // Give the absolute event a brief grace period to show up first.
+  if (e.alpha == null || e.beta == null || e.gamma == null) return;
+  if (state.orientSource === 'absolute') return;
   if (state.orientSource === null) {
-    if (performance.now() - state.captureStartT < 600) return;
+    // In 'absolute' preference mode, give the absolute event a grace
+    // period to appear. In 'auto'/'relative' modes, take relative
+    // immediately — it's smoother (no magnetometer jumps).
+    if (state.orientPref === 'absolute' &&
+        performance.now() - state.captureStartT < 600) return;
     state.orientSource = 'relative';
   }
   onOrientation(e, false);
 }
 
 function onOrientation(e, isAbsolute) {
-  if (e.alpha == null && e.beta == null) return;
+  if (e.alpha == null || e.beta == null || e.gamma == null) return;
 
-  let rawYaw;
-  if (e.webkitCompassHeading != null) {
-    rawYaw = e.webkitCompassHeading;        // iOS: true heading, CW from N
-    state.usingCompass = true;
-  } else if (e.alpha != null) {
-    // alpha is CCW around Z; we want CW yaw to match physical rotation
-    rawYaw = (360 - e.alpha) % 360;
-    state.usingCompass = !!isAbsolute;
-  } else return;
-
-  state.rawYaw = rawYaw;
+  const look = eulerToLook(e.alpha, e.beta, e.gamma);
+  state.rawYaw = look.az;
+  state.usingCompass = !!isAbsolute;
 
   const now = performance.now();
-  // First event after start, initialise without smoothing so we don't
-  // animate in from zero.
+  // First event after start: initialise without smoothing.
   const dt = state.lastSensorT ? Math.min(120, now - state.lastSensorT) : null;
   state.lastSensorT = now;
 
-  // PITCH: beta = 90 when phone is vertical (back camera at horizon).
-  //   beta > 90  → rear camera tilts up   → pitch > 0  (looking up)
-  //   beta < 90  → rear camera tilts down → pitch < 0  (looking down)
-  let pitchRaw = (e.beta || 90) - 90;
-  pitchRaw = Math.max(-90, Math.min(90, pitchRaw));
-  state.pitch = (dt == null) ? pitchRaw : smoothScalar(state.pitch, pitchRaw, dt);
+  // Elevation is well-defined everywhere — smooth normally.
+  state.pitch = (dt == null) ? look.el
+                             : smoothScalar(state.pitch, look.el, dt);
 
-  const rollRaw = e.gamma || 0;
+  // gamma still drives the bubble level (tilt around line of sight).
+  const rollRaw = e.gamma;
   state.roll = (dt == null) ? rollRaw : smoothScalar(state.roll, rollRaw, dt);
 
-  if (state.hasCalibrated) {
-    let yawTarget = rawYaw - state.yawRef;
-    yawTarget = ((yawTarget % 360) + 360) % 360;
-    state.yaw = (dt == null) ? yawTarget : smoothAngle(state.yaw, yawTarget, dt);
+  // Azimuth: undefined at the poles (looking straight up/down), so
+  // freeze it there rather than letting it spin.
+  if (!look.nearPole) {
+    state.lastGoodAz = look.az;
+    if (state.hasCalibrated) {
+      let yawTarget = look.az - state.yawRef;
+      yawTarget = ((yawTarget % 360) + 360) % 360;
+      state.yaw = (dt == null) ? yawTarget
+                               : smoothAngle(state.yaw, yawTarget, dt);
+    }
   }
 }
 
@@ -1746,8 +1801,15 @@ function checkAutoCapture() {
   if (state.targetIdx >= state.targets.length) return;
 
   const t = state.targets[state.targetIdx];
-  const dAz = Math.abs(angDiff(t.az, state.yaw));
   const dEl = Math.abs(t.el - state.pitch);
+  // Near the zenith/nadir, azimuth converges to a point — relax (and
+  // near ±88° effectively ignore) the azimuth requirement so a
+  // straight-up/down target can still lock.
+  const poleFactor = Math.max(Math.abs(t.el), Math.abs(state.pitch));
+  let dAz;
+  if (poleFactor > 88) dAz = 0;
+  else dAz = Math.abs(angDiff(t.az, state.yaw)) * Math.cos(poleFactor * DEG);
+
   const onTarget = dAz < state.tol && dEl < state.tol;
 
   if (onTarget) {
