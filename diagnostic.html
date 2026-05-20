@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Theodolite — Device Diagnostic</title>
+<style>
+  :root {
+    --bg:#0a0908; --soft:#141210; --line:#2a2620;
+    --amber:#ffb547; --amber-dim:#8a5a1a;
+    --red:#ff5a3c; --green:#6fff8e; --text:#efe2c5; --dim:#8a7d63;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{
+    font-family:'IBM Plex Mono',ui-monospace,'SF Mono',Menlo,monospace;
+    background:var(--bg);color:var(--text);font-size:13px;
+    padding:18px 14px calc(30px + env(safe-area-inset-bottom));
+    padding-top:calc(18px + env(safe-area-inset-top));
+    -webkit-font-smoothing:antialiased;line-height:1.5;
+  }
+  h1{font-size:15px;letter-spacing:.14em;text-transform:uppercase;
+     color:var(--amber);font-weight:600;}
+  .sub{color:var(--dim);font-size:10px;letter-spacing:.1em;
+       text-transform:uppercase;margin:4px 0 16px;}
+  .card{border:1px solid var(--line);background:var(--soft);
+        margin-bottom:10px;}
+  .card h2{font-size:10px;letter-spacing:.18em;text-transform:uppercase;
+           color:var(--dim);padding:9px 12px;border-bottom:1px solid var(--line);
+           display:flex;justify-content:space-between;align-items:center;}
+  .badge{font-size:9px;padding:2px 7px;letter-spacing:.1em;border:1px solid;}
+  .badge.ok{color:var(--green);border-color:rgba(111,255,142,.4);}
+  .badge.bad{color:var(--red);border-color:rgba(255,90,60,.4);}
+  .badge.wait{color:var(--amber);border-color:var(--amber-dim);}
+  .row{display:flex;justify-content:space-between;gap:10px;
+       padding:6px 12px;border-bottom:1px solid rgba(42,38,32,.5);}
+  .row:last-child{border-bottom:none;}
+  .row .k{color:var(--dim);font-size:11px;}
+  .row .v{text-align:right;font-size:11px;word-break:break-word;}
+  .v.ok{color:var(--green);} .v.bad{color:var(--red);} .v.warn{color:var(--amber);}
+  button{
+    width:100%;background:var(--amber);color:#000;border:none;
+    padding:14px;font-family:inherit;font-weight:600;font-size:12px;
+    letter-spacing:.16em;text-transform:uppercase;cursor:pointer;
+    margin:6px 0;
+  }
+  button.sec{background:transparent;color:var(--amber);
+             border:1px solid var(--amber-dim);}
+  button:disabled{opacity:.4;}
+  .live{font-size:22px;color:var(--amber);text-align:center;
+        padding:10px 0;letter-spacing:.04em;}
+  .live small{font-size:10px;color:var(--dim);}
+  #cam{width:100%;border:1px solid var(--line);background:#000;
+       display:none;margin-top:8px;}
+  .hint{font-size:10px;color:var(--dim);padding:8px 12px;line-height:1.6;}
+  .verdict{border:1px solid var(--amber-dim);background:rgba(255,181,71,.05);
+           padding:12px;margin-top:14px;font-size:11px;line-height:1.65;
+           display:none;}
+  .verdict h3{color:var(--amber);font-size:11px;letter-spacing:.12em;
+              text-transform:uppercase;margin-bottom:6px;}
+  .verdict ul{margin:6px 0 0 16px;}
+  .verdict li{margin-bottom:4px;}
+  code{color:var(--amber);background:rgba(255,181,71,.08);padding:0 3px;}
+  #log{font-size:9.5px;color:var(--dim);background:#000;border:1px solid var(--line);
+       padding:8px;margin-top:10px;max-height:160px;overflow-y:auto;
+       white-space:pre-wrap;word-break:break-word;line-height:1.5;}
+</style>
+</head>
+<body>
+
+<h1>Device Diagnostic</h1>
+<div class="sub">Theodolite Panorama · sensor &amp; camera check</div>
+
+<!-- ENVIRONMENT -->
+<div class="card">
+  <h2>Environment</h2>
+  <div class="row"><span class="k">Secure context (HTTPS)</span><span class="v" id="e-https">—</span></div>
+  <div class="row"><span class="k">User agent</span><span class="v" id="e-ua" style="font-size:9px;">—</span></div>
+  <div class="row"><span class="k">Screen</span><span class="v" id="e-screen">—</span></div>
+  <div class="row"><span class="k">Device pixel ratio</span><span class="v" id="e-dpr">—</span></div>
+  <div class="row"><span class="k">Service worker API</span><span class="v" id="e-sw">—</span></div>
+</div>
+
+<!-- MOTION -->
+<div class="card">
+  <h2>Motion / Orientation <span class="badge wait" id="m-badge">untested</span></h2>
+  <div class="row"><span class="k">DeviceOrientationEvent</span><span class="v" id="m-doe">—</span></div>
+  <div class="row"><span class="k">Needs permission (iOS-style)</span><span class="v" id="m-perm">—</span></div>
+  <div class="row"><span class="k"><code>deviceorientation</code> fires</span><span class="v" id="m-rel">—</span></div>
+  <div class="row"><span class="k"><code>deviceorientationabsolute</code> fires</span><span class="v" id="m-abs">—</span></div>
+  <div class="row"><span class="k">webkitCompassHeading</span><span class="v" id="m-compass">—</span></div>
+  <div class="row"><span class="k">alpha / beta / gamma present</span><span class="v" id="m-abg">—</span></div>
+  <div class="row"><span class="k">absolute flag</span><span class="v" id="m-absflag">—</span></div>
+  <div class="live" id="m-live">α — · β — · γ —<br><small>tap test, then move the phone</small></div>
+  <button id="m-test">Test motion sensors</button>
+</div>
+
+<!-- CAMERA -->
+<div class="card">
+  <h2>Camera <span class="badge wait" id="c-badge">untested</span></h2>
+  <div class="row"><span class="k">mediaDevices API</span><span class="v" id="c-api">—</span></div>
+  <div class="row"><span class="k">Rear camera (environment)</span><span class="v" id="c-env">—</span></div>
+  <div class="row"><span class="k">Resolution obtained</span><span class="v" id="c-res">—</span></div>
+  <div class="row"><span class="k">Cameras found</span><span class="v" id="c-count">—</span></div>
+  <video id="cam" autoplay playsinline muted></video>
+  <button id="c-test">Test camera</button>
+</div>
+
+<button class="sec" id="run-all">Run everything &amp; diagnose</button>
+
+<div class="verdict" id="verdict"></div>
+
+<div id="log">diagnostic log —</div>
+
+<script>
+(function(){
+'use strict';
+const $ = id => document.getElementById(id);
+function log(m){
+  const el = $('log');
+  el.textContent += '\n' + m;
+  el.scrollTop = el.scrollHeight;
+}
+function set(id, txt, cls){
+  const el = $(id);
+  if(!el) return;
+  el.textContent = txt;
+  el.className = 'v' + (cls ? ' ' + cls : '');
+}
+
+// ---- ENVIRONMENT ----
+(function env(){
+  const https = window.isSecureContext;
+  set('e-https', https ? 'yes' : 'NO — sensors blocked', https ? 'ok' : 'bad');
+  set('e-ua', navigator.userAgent);
+  set('e-screen', window.innerWidth + ' × ' + window.innerHeight + ' css');
+  set('e-dpr', String(window.devicePixelRatio || 1));
+  set('e-sw', 'serviceWorker' in navigator ? 'available' : 'missing', 'serviceWorker' in navigator ? 'ok':'warn');
+  log('env: https=' + https + ' screen=' + window.innerWidth + 'x' + window.innerHeight);
+})();
+
+// ---- MOTION ----
+const motion = {
+  doe:false, needsPerm:false, relFired:false, absFired:false,
+  compass:false, abg:false, absFlag:null, lastEvent:0,
+};
+(function motionStatic(){
+  const has = typeof DeviceOrientationEvent !== 'undefined';
+  motion.doe = has;
+  set('m-doe', has ? 'defined' : 'NOT defined', has ? 'ok' : 'bad');
+  const needsPerm = has && typeof DeviceOrientationEvent.requestPermission === 'function';
+  motion.needsPerm = needsPerm;
+  set('m-perm', needsPerm ? 'yes (iOS 13+ style)' : 'no (Android/desktop)', 'ok');
+  log('motion: DOE=' + has + ' needsPermission=' + needsPerm);
+})();
+
+function handleRel(e){ onMotionEvent(e, false); }
+function handleAbs(e){ onMotionEvent(e, true); }
+
+function onMotionEvent(e, isAbsListener){
+  motion.lastEvent = Date.now();
+  if(isAbsListener) {
+    if(!motion.absFired){ motion.absFired = true;
+      set('m-abs','firing ✓','ok'); log('deviceorientationabsolute: first event'); }
+  } else {
+    if(!motion.relFired){ motion.relFired = true;
+      set('m-rel','firing ✓','ok'); log('deviceorientation: first event'); }
+  }
+  const a = e.alpha, b = e.beta, g = e.gamma;
+  const hasABG = a != null && b != null && g != null;
+  if(hasABG && !motion.abg){
+    motion.abg = true;
+    set('m-abg','yes ✓','ok');
+  }
+  if(e.webkitCompassHeading != null && !motion.compass){
+    motion.compass = true;
+    set('m-compass', e.webkitCompassHeading.toFixed(1) + '° ✓','ok');
+  }
+  if(motion.absFlag === null && typeof e.absolute === 'boolean'){
+    motion.absFlag = e.absolute;
+    set('m-absflag', String(e.absolute), e.absolute ? 'ok':'warn');
+  }
+  $('m-live').innerHTML =
+    'α ' + (a==null?'—':a.toFixed(1)) +
+    ' · β ' + (b==null?'—':b.toFixed(1)) +
+    ' · γ ' + (g==null?'—':g.toFixed(1)) +
+    '<br><small>' + (hasABG ? 'sensors live — move the phone' : 'waiting for values…') + '</small>';
+}
+
+async function testMotion(){
+  $('m-test').disabled = true;
+  $('m-badge').textContent = 'testing'; $('m-badge').className = 'badge wait';
+  log('motion: starting test');
+
+  if(motion.needsPerm){
+    try {
+      const r = await DeviceOrientationEvent.requestPermission();
+      log('motion: requestPermission -> ' + r);
+      if(r !== 'granted'){
+        set('m-rel','permission denied','bad');
+        $('m-badge').textContent = 'denied'; $('m-badge').className='badge bad';
+        $('m-test').disabled = false;
+        return;
+      }
+    } catch(err){
+      log('motion: requestPermission error -> ' + err.message);
+    }
+  }
+
+  window.addEventListener('deviceorientation', handleRel, true);
+  window.addEventListener('deviceorientationabsolute', handleAbs, true);
+  log('motion: listeners attached, waiting 4s for events…');
+
+  // mark not-fired defaults
+  set('m-rel','listening…','warn');
+  set('m-abs','listening…','warn');
+
+  setTimeout(() => {
+    if(!motion.relFired) set('m-rel','NO events','bad');
+    if(!motion.absFired) set('m-abs','NO events','bad');
+    if(!motion.abg && !motion.relFired && !motion.absFired)
+      set('m-abg','no data','bad');
+
+    const working = motion.relFired || motion.absFired;
+    $('m-badge').textContent = working ? 'working' : 'FAILED';
+    $('m-badge').className = 'badge ' + (working ? 'ok' : 'bad');
+    log('motion: test done. rel=' + motion.relFired +
+        ' abs=' + motion.absFired + ' abg=' + motion.abg +
+        ' absFlag=' + motion.absFlag);
+    $('m-test').disabled = false;
+  }, 4200);
+}
+$('m-test').addEventListener('click', testMotion);
+
+// ---- CAMERA ----
+const cam = { api:false, env:false, res:'', count:0 };
+(function camStatic(){
+  const has = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+  cam.api = has;
+  set('c-api', has ? 'available' : 'NOT available', has ? 'ok' : 'bad');
+  log('camera: getUserMedia=' + has);
+})();
+
+async function testCamera(){
+  $('c-test').disabled = true;
+  $('c-badge').textContent = 'testing'; $('c-badge').className='badge wait';
+  if(!cam.api){
+    $('c-badge').textContent='FAILED'; $('c-badge').className='badge bad';
+    $('c-test').disabled = false;
+    return;
+  }
+  let stream;
+  try {
+    log('camera: requesting environment-facing…');
+    stream = await navigator.mediaDevices.getUserMedia({
+      video:{ facingMode:{ ideal:'environment' },
+              width:{ ideal:1920 }, height:{ ideal:1080 } },
+      audio:false
+    });
+    cam.env = true;
+    set('c-env','granted ✓','ok');
+  } catch(err){
+    log('camera: environment failed -> ' + err.name + ': ' + err.message);
+    set('c-env', err.name, 'bad');
+    // fallback: any camera
+    try {
+      log('camera: retrying with any camera…');
+      stream = await navigator.mediaDevices.getUserMedia({ video:true, audio:false });
+      set('c-env','fallback to default cam','warn');
+    } catch(err2){
+      log('camera: all attempts failed -> ' + err2.name + ': ' + err2.message);
+      set('c-env','blocked: ' + err2.name,'bad');
+      $('c-badge').textContent='FAILED'; $('c-badge').className='badge bad';
+      $('c-test').disabled = false;
+      return;
+    }
+  }
+
+  const v = $('cam');
+  v.srcObject = stream;
+  v.style.display = 'block';
+  await v.play().catch(e => log('camera: play() -> ' + e.message));
+
+  setTimeout(async () => {
+    const track = stream.getVideoTracks()[0];
+    const s = track ? track.getSettings() : {};
+    cam.res = (v.videoWidth||s.width||'?') + ' × ' + (v.videoHeight||s.height||'?');
+    set('c-res', cam.res + (s.facingMode ? ' (' + s.facingMode + ')' : ''), 'ok');
+    log('camera: resolution ' + cam.res + ' facing=' + (s.facingMode||'?'));
+
+    try {
+      const devs = await navigator.mediaDevices.enumerateDevices();
+      cam.count = devs.filter(d => d.kind === 'videoinput').length;
+      set('c-count', String(cam.count), 'ok');
+      log('camera: ' + cam.count + ' video input(s)');
+    } catch(e){ log('camera: enumerateDevices -> ' + e.message); }
+
+    $('c-badge').textContent = 'working';
+    $('c-badge').className = 'badge ok';
+    $('c-test').disabled = false;
+  }, 700);
+}
+$('c-test').addEventListener('click', testCamera);
+
+// ---- RUN ALL + VERDICT ----
+$('run-all').addEventListener('click', async () => {
+  $('run-all').disabled = true;
+  await testCamera();
+  await testMotion();
+  setTimeout(showVerdict, 4600);
+});
+
+function showVerdict(){
+  const v = $('verdict');
+  const problems = [];
+  const notes = [];
+
+  if(!window.isSecureContext)
+    problems.push('Page is not on HTTPS — Android Chrome blocks motion sensors and camera entirely off non-secure origins. Host it on HTTPS.');
+
+  if(!motion.relFired && !motion.absFired)
+    problems.push('No orientation events fired at all. On the Xperia, check Chrome → site settings → Motion sensors is allowed, and that Android Settings → Chrome → Permissions isn\'t blocking it.');
+  else if(!motion.absFired && motion.relFired)
+    notes.push('Only <code>deviceorientation</code> fires, not <code>deviceorientationabsolute</code> — normal on many Android devices. The app falls back to relative alpha, which is fine since you set the zero direction with the shutter anyway.');
+  else if(motion.absFired)
+    notes.push('<code>deviceorientationabsolute</code> works — compass-referenced yaw available.');
+
+  if(motion.absFlag === false)
+    notes.push('Orientation <code>absolute</code> flag is false — yaw is relative/drift-prone, not compass-locked. Capture still works; just don\'t expect true-north accuracy.');
+
+  if((motion.relFired || motion.absFired) && !motion.abg)
+    problems.push('Events fire but alpha/beta/gamma are null — the Xperia may need "Use sensors" enabled, or it\'s a sensor-fusion issue. Try toggling Android location on (some builds gate the magnetometer behind it).');
+
+  if(!cam.env && !cam.res)
+    problems.push('Camera could not be opened. Check Chrome camera permission for this site.');
+  else if(!cam.env && cam.res)
+    notes.push('Rear camera by <code>facingMode:environment</code> failed but a fallback camera opened — the app may show the front camera. Worth checking which camera appears.');
+
+  let html = '<h3>Diagnosis</h3>';
+  if(problems.length === 0){
+    html += '<p style="color:var(--green)">All core checks passed. If the main app still misbehaves on this phone, it\'s a rendering issue rather than a hardware/permission one — send me what you see.</p>';
+  } else {
+    html += '<p style="color:var(--red)">Found ' + problems.length + ' issue' + (problems.length>1?'s':'') + ':</p><ul>';
+    problems.forEach(p => html += '<li>' + p + '</li>');
+    html += '</ul>';
+  }
+  if(notes.length){
+    html += '<p style="color:var(--dim);margin-top:8px;">Notes:</p><ul>';
+    notes.forEach(n => html += '<li>' + n + '</li>');
+    html += '</ul>';
+  }
+  html += '<p style="color:var(--dim);margin-top:8px;font-size:10px;">' +
+          'Copy the diagnostic log below and send it over for a closer look.</p>';
+  v.innerHTML = html;
+  v.style.display = 'block';
+  v.scrollIntoView({ behavior:'smooth', block:'start' });
+  $('run-all').disabled = false;
+}
+
+log('ready — tap "Run everything & diagnose"');
+})();
+</script>
+</body>
+</html>

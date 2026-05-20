@@ -844,6 +844,8 @@ const state = {
   usingCompass: false,
   onTargetSince: 0,
   lastSensorT: 0,         // for time-based sensor smoothing
+  orientSource: null,     // locked orientation event source
+  captureStartT: 0,       // when capture session began (for source grace period)
   capturing: false,
   stream: null,
   wakeLock: null,
@@ -1037,6 +1039,8 @@ async function startCapture() {
   state.usingCompass = false;
   state.onTargetSince = 0;
   state.lastSensorT = 0;
+  state.orientSource = null;
+  state.captureStartT = performance.now();
   state.yaw = 0; state.pitch = 0; state.roll = 0;
 
   $('modeV').textContent = MODES[state.mode].name;
@@ -1047,8 +1051,13 @@ async function startCapture() {
   $('hintText').innerHTML = 'Point at your start direction, hold the phone vertical, tap <span>shutter</span>';
   updateProgress();
 
-  window.addEventListener('deviceorientationabsolute', onOrientation, true);
-  window.addEventListener('deviceorientation', onOrientation, true);
+  // Android fires BOTH deviceorientation and deviceorientationabsolute.
+  // Feeding both into one handler makes the yaw smoother fight itself
+  // (relative alpha vs compass-absolute alpha disagree). Prefer the
+  // absolute event when it's available; fall back to relative if not.
+  state.orientSource = null;   // 'absolute' | 'relative', locked on first event
+  window.addEventListener('deviceorientationabsolute', onOrientationAbsolute, true);
+  window.addEventListener('deviceorientation', onOrientationRelative, true);
 
   showScreen('capture');
   // Force a sync next frame; loop also re-syncs whenever dimensions change.
@@ -1079,7 +1088,27 @@ function smoothAngle(curr, target, dt) {
   return next;
 }
 
-function onOrientation(e) {
+// Wrappers that lock onto a single orientation source. The first
+// listener to receive a usable event "wins"; the other is ignored for
+// the rest of the session so the two streams can't fight each other.
+function onOrientationAbsolute(e) {
+  if (e.alpha == null && e.beta == null) return;
+  if (state.orientSource === 'relative') return;   // already committed elsewhere
+  state.orientSource = 'absolute';
+  onOrientation(e, true);
+}
+function onOrientationRelative(e) {
+  if (e.alpha == null && e.beta == null) return;
+  if (state.orientSource === 'absolute') return;   // absolute wins if present
+  // Give the absolute event a brief grace period to show up first.
+  if (state.orientSource === null) {
+    if (performance.now() - state.captureStartT < 600) return;
+    state.orientSource = 'relative';
+  }
+  onOrientation(e, false);
+}
+
+function onOrientation(e, isAbsolute) {
   if (e.alpha == null && e.beta == null) return;
 
   let rawYaw;
@@ -1089,6 +1118,7 @@ function onOrientation(e) {
   } else if (e.alpha != null) {
     // alpha is CCW around Z; we want CW yaw to match physical rotation
     rawYaw = (360 - e.alpha) % 360;
+    state.usingCompass = !!isAbsolute;
   } else return;
 
   state.rawYaw = rawYaw;
@@ -1608,8 +1638,8 @@ async function finishCapture(complete) {
 }
 
 function stopStreams() {
-  window.removeEventListener('deviceorientation', onOrientation, true);
-  window.removeEventListener('deviceorientationabsolute', onOrientation, true);
+  window.removeEventListener('deviceorientation', onOrientationRelative, true);
+  window.removeEventListener('deviceorientationabsolute', onOrientationAbsolute, true);
   if (state.stream) {
     state.stream.getTracks().forEach(t => t.stop());
     state.stream = null;
