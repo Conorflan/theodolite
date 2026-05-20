@@ -235,6 +235,77 @@ body::before {
 }
 .btn-tiny:active { background: rgba(255,181,71,0.12); border-color: var(--amber-dim); }
 
+/* camera picker */
+.cam-pick { border: 1px solid var(--line); background: var(--bg-soft); }
+.cam-pick-head {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 9px 12px; border-bottom: 1px solid var(--line);
+}
+#camStatus { font-size: 10px; color: var(--text-dim); letter-spacing: 0.04em; }
+.btn-detect {
+  background: transparent; border: 1px solid var(--amber-dim);
+  color: var(--amber); font-family: var(--display); font-weight: 600;
+  font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase;
+  padding: 6px 14px; cursor: pointer;
+}
+.btn-detect:active { background: rgba(255,181,71,0.12); }
+.btn-detect:disabled { opacity: 0.4; }
+.cam-list { display: flex; flex-direction: column; }
+.cam-empty {
+  font-size: 10px; color: var(--text-dim); line-height: 1.6;
+  padding: 11px 12px; letter-spacing: 0.02em;
+}
+.cam-empty b { color: var(--amber); }
+.cam-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px; cursor: pointer;
+  border-bottom: 1px solid rgba(42,38,32,0.6);
+}
+.cam-item:last-child { border-bottom: none; }
+.cam-item.selected { background: rgba(255,181,71,0.06); }
+.cam-radio {
+  width: 14px; height: 14px; border: 1px solid var(--line-bright);
+  border-radius: 50%; flex-shrink: 0; position: relative;
+}
+.cam-item.selected .cam-radio { border-color: var(--amber); }
+.cam-item.selected .cam-radio::after {
+  content: ''; position: absolute; inset: 3px;
+  background: var(--amber); border-radius: 50%;
+}
+.cam-item .cam-meta { flex: 1; min-width: 0; }
+.cam-item .cam-name {
+  font-family: var(--display); font-weight: 600; font-size: 12px;
+  letter-spacing: 0.04em; text-transform: uppercase;
+}
+.cam-item.selected .cam-name { color: var(--amber-bright); }
+.cam-item .cam-detail {
+  font-size: 9px; color: var(--text-dim); letter-spacing: 0.03em;
+  margin-top: 1px; line-height: 1.4;
+}
+.cam-item .cam-fov {
+  font-family: var(--display); font-weight: 600; font-size: 13px;
+  color: var(--text-dim); text-align: right; white-space: nowrap;
+}
+.cam-item.selected .cam-fov { color: var(--amber); }
+
+/* FOV presets */
+.fov-presets {
+  display: flex; flex-wrap: wrap; gap: 5px; align-items: center;
+  margin-top: 6px;
+}
+.fov-presets-label {
+  font-size: 9px; letter-spacing: 0.16em; color: var(--text-dim);
+  text-transform: uppercase; width: 100%; margin-bottom: 1px;
+}
+.fov-preset {
+  flex: 1; min-width: 70px;
+  background: var(--bg-soft); border: 1px solid var(--line);
+  color: var(--text-dim); font-family: var(--mono); font-size: 10px;
+  padding: 8px 4px; cursor: pointer; letter-spacing: 0.02em;
+}
+.fov-preset:active { background: rgba(255,181,71,0.1); }
+.fov-preset.active { border-color: var(--amber); color: var(--amber); }
+
 .note {
   font-size: 10px;
   color: var(--text-dim);
@@ -654,14 +725,25 @@ body::before {
     <div class="section-label">PROJECTION</div>
     <div class="modes" id="modes"></div>
 
+    <div class="section-label">CAMERA</div>
+    <div class="cam-pick">
+      <div class="cam-pick-head">
+        <span id="camStatus">No camera selected</span>
+        <button class="btn-detect" id="detectBtn">Detect</button>
+      </div>
+      <div class="cam-list" id="camList">
+        <div class="cam-empty">Tap <b>Detect</b> to list the rear cameras on this phone. Phones with multiple lenses (wide / main / tele) need you to pick one explicitly — browsers otherwise choose inconsistently.</div>
+      </div>
+    </div>
+
     <div class="section-label">PARAMETERS</div>
     <div class="params">
       <div class="param">
         <div class="k">CAM FOV (H)</div>
         <div class="v"><span id="fovVal">68</span><small>°</small></div>
         <div class="controls">
-          <button class="btn-tiny" data-fov="-5">−</button>
-          <button class="btn-tiny" data-fov="+5">+</button>
+          <button class="btn-tiny" data-fov="-2">−</button>
+          <button class="btn-tiny" data-fov="+2">+</button>
         </div>
       </div>
       <div class="param">
@@ -672,6 +754,17 @@ body::before {
           <button class="btn-tiny" data-tol="+1">+</button>
         </div>
       </div>
+    </div>
+    <div class="fov-presets">
+      <span class="fov-presets-label">LENS PRESET</span>
+      <button class="fov-preset" data-fovset="106">Ultrawide ·106°</button>
+      <button class="fov-preset" data-fovset="78">Main ·78°</button>
+      <button class="fov-preset" data-fovset="68">Tele ·68°</button>
+      <button class="fov-preset" data-fovset="55">Long ·55°</button>
+    </div>
+
+    <div class="note">
+      <b>Camera &amp; FOV must match.</b> Pick the lens above, then set the FOV preset for that same lens — if the FOV is wrong the reticle overlay won't line up. <code>Detect</code> tries to label each lens and guess its FOV. When unsure, the <b>Main</b> lens at ~78° is the safe choice.
     </div>
 
     <div class="note">
@@ -853,6 +946,10 @@ const state = {
   // computed visible FOV (after object-fit:cover crop)
   visFovH: 68,
   visFovV: 68,
+  // camera selection
+  cameras: [],
+  selectedCameraId: null,
+  activeCameraSettings: {},
 };
 
 // ============================================================
@@ -965,11 +1062,20 @@ function renderModes() {
 }
 renderModes();
 
-document.querySelectorAll('[data-fov]').forEach(b => {
-  b.addEventListener('click', () => {
-    state.fov = Math.max(40, Math.min(110, state.fov + parseInt(b.dataset.fov)));
-    $('fovVal').textContent = state.fov;
+function setFov(val) {
+  state.fov = Math.max(40, Math.min(120, Math.round(val)));
+  $('fovVal').textContent = state.fov;
+  // highlight a preset if it matches exactly
+  document.querySelectorAll('.fov-preset').forEach(p => {
+    p.classList.toggle('active', parseInt(p.dataset.fovset) === state.fov);
   });
+}
+
+document.querySelectorAll('[data-fov]').forEach(b => {
+  b.addEventListener('click', () => setFov(state.fov + parseInt(b.dataset.fov)));
+});
+document.querySelectorAll('[data-fovset]').forEach(b => {
+  b.addEventListener('click', () => setFov(parseInt(b.dataset.fovset)));
 });
 document.querySelectorAll('[data-tol]').forEach(b => {
   b.addEventListener('click', () => {
@@ -987,6 +1093,117 @@ $('restartBtn').addEventListener('click', () => { state.captures = []; showScree
 $('errBtn').addEventListener('click', () => { $('errorOverlay').style.display = 'none'; startCapture(); });
 $('dlComposite').addEventListener('click', downloadComposite);
 $('dlZip').addEventListener('click', downloadZip);
+$('detectBtn').addEventListener('click', detectCameras);
+
+// ============================================================
+// CAMERA DETECTION
+// ============================================================
+// Guess a lens type + nominal horizontal FOV from a device label.
+// Labels on Android Chrome look like "camera2 0, facing back" or
+// include words like "wide", "ultra", "tele", "front".
+function classifyCamera(label, index) {
+  const l = (label || '').toLowerCase();
+  if (l.includes('front') || l.includes('facing front') || l.includes('user'))
+    return { kind: 'front', name: 'Front camera', fov: 70, back: false };
+  if (l.includes('ultra') || l.includes('ultrawide') || l.includes('ultra wide') || l.includes('0.5'))
+    return { kind: 'ultrawide', name: 'Ultrawide lens', fov: 106, back: true };
+  if (l.includes('tele') || l.includes('zoom') || l.includes('3x') || l.includes('2x'))
+    return { kind: 'tele', name: 'Telephoto lens', fov: 55, back: true };
+  if (l.includes('wide') || l.includes('main') || l.includes('back') || l.includes('rear') || l.includes('environment'))
+    return { kind: 'main', name: 'Main camera', fov: 78, back: true };
+  // Unlabelled — common when permission not yet granted
+  return { kind: 'unknown', name: 'Camera ' + (index + 1), fov: 78, back: true };
+}
+
+async function detectCameras() {
+  const btn = $('detectBtn');
+  btn.disabled = true;
+  btn.textContent = '…';
+  $('camStatus').textContent = 'Requesting access…';
+
+  // enumerateDevices only returns labels AFTER camera permission is
+  // granted, so we must open a stream first then release it.
+  let probe;
+  try {
+    probe = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: 'environment' } }, audio: false
+    });
+  } catch (e) {
+    $('camStatus').textContent = 'Camera blocked: ' + e.name;
+    $('camList').innerHTML = '<div class="cam-empty">Camera permission was denied. Allow camera access for this site in your browser settings, then tap Detect again.</div>';
+    btn.disabled = false; btn.textContent = 'Detect';
+    return;
+  }
+
+  let devices = [];
+  try {
+    const all = await navigator.mediaDevices.enumerateDevices();
+    devices = all.filter(d => d.kind === 'videoinput');
+  } catch (e) {
+    $('camStatus').textContent = 'enumerateDevices failed';
+  }
+  probe.getTracks().forEach(t => t.stop());
+
+  state.cameras = devices.map((d, i) => {
+    const c = classifyCamera(d.label, i);
+    return { deviceId: d.deviceId, label: d.label, ...c };
+  });
+
+  // Keep back cameras (and unknowns) at the top
+  state.cameras.sort((a, b) => (b.back === a.back) ? 0 : (b.back ? 1 : -1));
+
+  renderCameraList();
+  const backCount = state.cameras.filter(c => c.back).length;
+  $('camStatus').textContent = state.cameras.length +
+    ' camera' + (state.cameras.length !== 1 ? 's' : '') + ' found' +
+    (backCount ? ' · ' + backCount + ' rear' : '');
+  btn.disabled = false;
+  btn.textContent = 'Re-detect';
+
+  // Auto-select the main rear camera if nothing chosen yet
+  if (!state.selectedCameraId) {
+    const main = state.cameras.find(c => c.kind === 'main')
+              || state.cameras.find(c => c.back)
+              || state.cameras[0];
+    if (main) selectCamera(main.deviceId);
+  }
+}
+
+function renderCameraList() {
+  const list = $('camList');
+  if (!state.cameras.length) {
+    list.innerHTML = '<div class="cam-empty">No cameras reported by this browser.</div>';
+    return;
+  }
+  list.innerHTML = '';
+  state.cameras.forEach(cam => {
+    const div = document.createElement('div');
+    div.className = 'cam-item' + (cam.deviceId === state.selectedCameraId ? ' selected' : '');
+    const detail = cam.label
+      ? cam.label.replace(/\s*\([0-9a-f:]+\)\s*$/i, '')
+      : (cam.back ? 'rear-facing' : 'front-facing');
+    div.innerHTML = `
+      <div class="cam-radio"></div>
+      <div class="cam-meta">
+        <div class="cam-name">${cam.name}</div>
+        <div class="cam-detail">${detail}</div>
+      </div>
+      <div class="cam-fov">~${cam.fov}°</div>
+    `;
+    div.addEventListener('click', () => selectCamera(cam.deviceId));
+    list.appendChild(div);
+  });
+}
+
+function selectCamera(deviceId) {
+  state.selectedCameraId = deviceId;
+  const cam = state.cameras.find(c => c.deviceId === deviceId);
+  if (cam && cam.kind !== 'unknown') {
+    // sync the FOV to the lens we just picked
+    setFov(cam.fov);
+  }
+  renderCameraList();
+}
 
 // ============================================================
 // START CAPTURE
@@ -1009,17 +1226,46 @@ async function startCapture() {
   }
 
   try {
-    state.stream = await navigator.mediaDevices.getUserMedia({
-      video: {
-        facingMode: { ideal: 'environment' },
-        width:  { ideal: 1920 },
-        height: { ideal: 1080 },
-      },
-      audio: false,
-    });
+    // If a specific camera was picked, request it by exact deviceId so
+    // the browser can't substitute a different lens. Otherwise fall
+    // back to facingMode. Request an explicit 16:9 so Chrome and
+    // Firefox don't disagree on aspect ratio.
+    const videoConstraints = {
+      width:  { ideal: 1920 },
+      height: { ideal: 1080 },
+      aspectRatio: { ideal: 16 / 9 },
+    };
+    if (state.selectedCameraId) {
+      videoConstraints.deviceId = { exact: state.selectedCameraId };
+    } else {
+      videoConstraints.facingMode = { ideal: 'environment' };
+    }
+
+    try {
+      state.stream = await navigator.mediaDevices.getUserMedia({
+        video: videoConstraints, audio: false,
+      });
+    } catch (eExact) {
+      // exact deviceId can fail if the id changed between sessions —
+      // retry without the hard constraint
+      if (state.selectedCameraId) {
+        delete videoConstraints.deviceId;
+        videoConstraints.facingMode = { ideal: 'environment' };
+        state.stream = await navigator.mediaDevices.getUserMedia({
+          video: videoConstraints, audio: false,
+        });
+      } else {
+        throw eExact;
+      }
+    }
+
     const v = $('video');
     v.srcObject = state.stream;
     await v.play();
+
+    // Record what we actually got, for metadata + sanity
+    const track = state.stream.getVideoTracks()[0];
+    state.activeCameraSettings = track ? track.getSettings() : {};
   } catch (e) {
     return showError('Camera unavailable',
       "Couldn't access the camera. " + e.message);
@@ -1819,18 +2065,27 @@ async function downloadZip() {
   btn.classList.add('disabled');
 
   try {
+    const selCam = state.cameras.find(c => c.deviceId === state.selectedCameraId);
     const zip = new JSZip();
     const meta = {
       generator: 'Theodolite Panorama Capture',
-      version: '2.0',
+      version: '2.1',
       timestamp: new Date().toISOString(),
       mode: state.mode,
       mode_label: MODES[state.mode].label,
       camera_fov_h_deg_stated: state.fov,
+      camera_lens: selCam ? selCam.kind : 'unspecified',
+      camera_label: selCam ? selCam.label : (state.activeCameraSettings.deviceId || ''),
+      camera_settings: {
+        width: state.activeCameraSettings.width || null,
+        height: state.activeCameraSettings.height || null,
+        facing: state.activeCameraSettings.facingMode || null,
+      },
       visible_fov_h_deg: state.visFovH,
       visible_fov_v_deg: state.visFovV,
       tolerance_deg: state.tol,
       yaw_source: state.usingCompass ? 'compass-true-north' : 'device-relative',
+      orientation_event: state.orientSource || 'unknown',
       frames: [],
     };
 

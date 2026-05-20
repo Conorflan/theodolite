@@ -1,7 +1,7 @@
 // Theodolite Panorama — service worker
 // Caches the app shell so it runs offline once installed.
 
-const CACHE = 'theodolite-v2';
+const CACHE = 'theodolite-v3';
 const SHELL = [
   './',
   './index.html',

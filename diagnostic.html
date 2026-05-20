@@ -102,7 +102,8 @@
   <div class="row"><span class="k">Resolution obtained</span><span class="v" id="c-res">—</span></div>
   <div class="row"><span class="k">Cameras found</span><span class="v" id="c-count">—</span></div>
   <video id="cam" autoplay playsinline muted></video>
-  <button id="c-test">Test camera</button>
+  <div id="c-cameras"></div>
+  <button id="c-test">Test camera &amp; list lenses</button>
 </div>
 
 <button class="sec" id="run-all">Run everything &amp; diagnose</button>
@@ -261,7 +262,6 @@ async function testCamera(){
   } catch(err){
     log('camera: environment failed -> ' + err.name + ': ' + err.message);
     set('c-env', err.name, 'bad');
-    // fallback: any camera
     try {
       log('camera: retrying with any camera…');
       stream = await navigator.mediaDevices.getUserMedia({ video:true, audio:false });
@@ -280,24 +280,73 @@ async function testCamera(){
   v.style.display = 'block';
   await v.play().catch(e => log('camera: play() -> ' + e.message));
 
-  setTimeout(async () => {
-    const track = stream.getVideoTracks()[0];
-    const s = track ? track.getSettings() : {};
-    cam.res = (v.videoWidth||s.width||'?') + ' × ' + (v.videoHeight||s.height||'?');
-    set('c-res', cam.res + (s.facingMode ? ' (' + s.facingMode + ')' : ''), 'ok');
-    log('camera: resolution ' + cam.res + ' facing=' + (s.facingMode||'?'));
+  // The camera the browser chose by default
+  await new Promise(r => setTimeout(r, 700));
+  const track = stream.getVideoTracks()[0];
+  const s = track ? track.getSettings() : {};
+  cam.res = (v.videoWidth||s.width||'?') + ' × ' + (v.videoHeight||s.height||'?');
+  cam.defaultFacing = s.facingMode || '?';
+  cam.defaultId = s.deviceId || '';
+  set('c-res', cam.res + (s.facingMode ? ' (' + s.facingMode + ')' : ''), 'ok');
+  log('camera: default lens resolution ' + cam.res + ' facing=' + cam.defaultFacing);
+  stream.getTracks().forEach(t => t.stop());
 
+  // Now enumerate every camera and probe each one individually
+  let devices = [];
+  try {
+    const devs = await navigator.mediaDevices.enumerateDevices();
+    devices = devs.filter(d => d.kind === 'videoinput');
+    cam.count = devices.length;
+    set('c-count', String(cam.count), 'ok');
+    log('camera: ' + cam.count + ' video input(s)');
+  } catch(e){ log('camera: enumerateDevices -> ' + e.message); }
+
+  const box = $('c-cameras');
+  box.innerHTML = '';
+  for (let i = 0; i < devices.length; i++) {
+    const d = devices[i];
+    const cls = classifyLens(d.label, i);
+    let resTxt = '?';
     try {
-      const devs = await navigator.mediaDevices.enumerateDevices();
-      cam.count = devs.filter(d => d.kind === 'videoinput').length;
-      set('c-count', String(cam.count), 'ok');
-      log('camera: ' + cam.count + ' video input(s)');
-    } catch(e){ log('camera: enumerateDevices -> ' + e.message); }
+      const st = await navigator.mediaDevices.getUserMedia({
+        video: { deviceId: { exact: d.deviceId } }, audio: false
+      });
+      const t2 = st.getVideoTracks()[0];
+      const s2 = t2 ? t2.getSettings() : {};
+      resTxt = (s2.width||'?') + '×' + (s2.height||'?');
+      st.getTracks().forEach(t => t.stop());
+      log('camera[' + i + ']: ' + (d.label||'(no label)') + ' -> ' + resTxt);
+    } catch(e){
+      resTxt = 'probe failed';
+      log('camera[' + i + ']: probe failed -> ' + e.name);
+    }
+    const isDefault = d.deviceId && d.deviceId === cam.defaultId;
+    const row = document.createElement('div');
+    row.className = 'row';
+    row.innerHTML =
+      '<span class="k">' + cls.name + (isDefault ? ' ◀ default' : '') + '</span>' +
+      '<span class="v ' + (cls.kind==='ultrawide'?'warn':'ok') + '">' +
+        resTxt + ' · ~' + cls.fov + '°</span>';
+    box.appendChild(row);
+  }
 
-    $('c-badge').textContent = 'working';
-    $('c-badge').className = 'badge ok';
-    $('c-test').disabled = false;
-  }, 700);
+  $('c-badge').textContent = 'working';
+  $('c-badge').className = 'badge ok';
+  $('c-test').disabled = false;
+}
+
+// Guess lens type + FOV from a device label
+function classifyLens(label, index){
+  const l = (label || '').toLowerCase();
+  if (l.includes('front') || l.includes('user'))
+    return { kind:'front', name:'Front camera', fov:70 };
+  if (l.includes('ultra') || l.includes('0.5'))
+    return { kind:'ultrawide', name:'Ultrawide lens', fov:106 };
+  if (l.includes('tele') || l.includes('zoom') || l.includes('3x') || l.includes('2x'))
+    return { kind:'tele', name:'Telephoto lens', fov:55 };
+  if (l.includes('wide') || l.includes('main') || l.includes('back') || l.includes('rear'))
+    return { kind:'main', name:'Main camera', fov:78 };
+  return { kind:'unknown', name:'Camera ' + (index+1) + (label ? ' ('+label.slice(0,24)+')' : ''), fov:78 };
 }
 $('c-test').addEventListener('click', testCamera);
 
@@ -334,6 +383,9 @@ function showVerdict(){
     problems.push('Camera could not be opened. Check Chrome camera permission for this site.');
   else if(!cam.env && cam.res)
     notes.push('Rear camera by <code>facingMode:environment</code> failed but a fallback camera opened — the app may show the front camera. Worth checking which camera appears.');
+
+  if(cam.count > 1)
+    notes.push('This phone has <b>' + cam.count + ' cameras</b>. Different browsers pick different lenses for <code>facingMode:environment</code> — that\'s why Chrome and Firefox disagreed. In the main app, use the <b>Camera → Detect</b> picker to lock one specific lens, and set the matching FOV preset. The lens list above shows each one\'s guessed FOV.');
 
   let html = '<h3>Diagnosis</h3>';
   if(problems.length === 0){
