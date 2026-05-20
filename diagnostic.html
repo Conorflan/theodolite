@@ -90,8 +90,43 @@
   <div class="row"><span class="k">webkitCompassHeading</span><span class="v" id="m-compass">—</span></div>
   <div class="row"><span class="k">alpha / beta / gamma present</span><span class="v" id="m-abg">—</span></div>
   <div class="row"><span class="k">absolute flag</span><span class="v" id="m-absflag">—</span></div>
+  <div class="row"><span class="k">event rate</span><span class="v" id="m-hz">—</span></div>
   <div class="live" id="m-live">α — · β — · γ —<br><small>tap test, then move the phone</small></div>
   <button id="m-test">Test motion sensors</button>
+</div>
+
+<!-- SENSOR STABILITY -->
+<div class="card">
+  <h2>Sensor Stability <span class="badge wait" id="s-badge">untested</span></h2>
+  <div class="hint">
+    Tests whether your overlay-spring problem is sensor noise, magnetic
+    interference, or gimbal-lock math. <b>Hold the phone vertical and
+    still</b> (as if aiming a panorama) for the whole test — don't move it.
+  </div>
+  <div class="live" id="s-live">— hold still —<br><small>raw vs look-vector</small></div>
+  <div class="row"><span class="k">Raw alpha jitter (still)</span><span class="v" id="s-rawjit">—</span></div>
+  <div class="row"><span class="k">Look-vector azimuth jitter</span><span class="v" id="s-azjit">—</span></div>
+  <div class="row"><span class="k">Elevation jitter</span><span class="v" id="s-eljit">—</span></div>
+  <div class="row"><span class="k">Azimuth drift over test</span><span class="v" id="s-drift">—</span></div>
+  <div class="row"><span class="k">Max raw-alpha jump</span><span class="v" id="s-jump">—</span></div>
+  <div class="row"><span class="k">Gimbal-lock spring detected</span><span class="v" id="s-gimbal">—</span></div>
+  <button id="s-test">Run 7-second stability test</button>
+</div>
+
+<!-- COMPASS vs GYRO -->
+<div class="card">
+  <h2>Compass vs Gyro <span class="badge wait" id="g-badge">untested</span></h2>
+  <div class="hint">
+    Compares the two orientation event streams. If they disagree badly
+    while the phone is still, your magnetometer (compass) is being
+    disturbed — use <b>Gyro</b> mode in the app. Keep the phone still.
+  </div>
+  <div class="row"><span class="k">Relative (gyro) azimuth</span><span class="v" id="g-rel">—</span></div>
+  <div class="row"><span class="k">Absolute (compass) azimuth</span><span class="v" id="g-abs">—</span></div>
+  <div class="row"><span class="k">Divergence</span><span class="v" id="g-div">—</span></div>
+  <div class="row"><span class="k">Compass noise</span><span class="v" id="g-noise">—</span></div>
+  <div class="row"><span class="k">Recommended source</span><span class="v" id="g-rec">—</span></div>
+  <button id="g-test">Run 6-second comparison</button>
 </div>
 
 <!-- CAMERA -->
@@ -159,6 +194,7 @@ function handleAbs(e){ onMotionEvent(e, true); }
 
 function onMotionEvent(e, isAbsListener){
   motion.lastEvent = Date.now();
+  motion.eventCount = (motion.eventCount || 0) + 1;
   if(isAbsListener) {
     if(!motion.absFired){ motion.absFired = true;
       set('m-abs','firing ✓','ok'); log('deviceorientationabsolute: first event'); }
@@ -214,12 +250,24 @@ async function testMotion(){
   // mark not-fired defaults
   set('m-rel','listening…','warn');
   set('m-abs','listening…','warn');
+  motion.eventCount = 0;
+  const t0 = Date.now();
 
   setTimeout(() => {
     if(!motion.relFired) set('m-rel','NO events','bad');
     if(!motion.absFired) set('m-abs','NO events','bad');
     if(!motion.abg && !motion.relFired && !motion.absFired)
       set('m-abg','no data','bad');
+
+    const secs = (Date.now() - t0) / 1000;
+    const hz = motion.eventCount / secs;
+    if(motion.eventCount > 0){
+      const cls = hz >= 30 ? 'ok' : (hz >= 15 ? 'warn' : 'bad');
+      set('m-hz', hz.toFixed(0) + ' Hz' + (hz < 30 ? ' (low)' : ''), cls);
+      log('motion: ~' + hz.toFixed(1) + ' Hz across both streams');
+    } else {
+      set('m-hz', 'no events', 'bad');
+    }
 
     const working = motion.relFired || motion.absFired;
     $('m-badge').textContent = working ? 'working' : 'FAILED';
@@ -231,6 +279,212 @@ async function testMotion(){
   }, 4200);
 }
 $('m-test').addEventListener('click', testMotion);
+
+// ============================================================
+// SHARED: Euler -> look-vector azimuth/elevation
+// (same math the main app now uses)
+// ============================================================
+const DEG = Math.PI / 180;
+function eulerToLook(alphaDeg, betaDeg, gammaDeg){
+  const a = alphaDeg*DEG, b = betaDeg*DEG, g = gammaDeg*DEG;
+  const cA=Math.cos(a),sA=Math.sin(a),cB=Math.cos(b),sB=Math.sin(b),cG=Math.cos(g),sG=Math.sin(g);
+  const lookE = -(cA*sG + sA*sB*cG);
+  const lookN = -(sA*sG - cA*sB*cG);
+  const lookU = -(cB*cG);
+  let az = Math.atan2(lookE, lookN)/DEG; az = ((az%360)+360)%360;
+  const el = Math.asin(Math.max(-1,Math.min(1,lookU)))/DEG;
+  return { az, el };
+}
+// circular stats helpers
+function angDiff(a, b){ return ((a-b+540)%360)-180; }
+function circStdDev(samples){
+  // standard deviation of angles, handling wrap
+  if(samples.length < 2) return 0;
+  let sx=0, sy=0;
+  for(const s of samples){ sx+=Math.cos(s*DEG); sy+=Math.sin(s*DEG); }
+  sx/=samples.length; sy/=samples.length;
+  const R = Math.hypot(sx, sy);
+  // circular std dev in degrees
+  return Math.sqrt(-2*Math.log(Math.max(1e-9,R)))/DEG;
+}
+
+// ============================================================
+// SENSOR STABILITY TEST
+// ============================================================
+async function testStability(){
+  const btn = $('s-test');
+  btn.disabled = true;
+  $('s-badge').textContent = 'testing'; $('s-badge').className='badge wait';
+
+  if(motion.needsPerm){
+    try { await DeviceOrientationEvent.requestPermission(); } catch(e){}
+  }
+
+  const rawAlpha = [], azs = [], els = [];
+  let lastRaw = null, maxJump = 0, maxAzJump = 0;
+  let started = Date.now();
+
+  function collect(e){
+    if(e.alpha == null || e.beta == null || e.gamma == null) return;
+    rawAlpha.push(e.alpha);
+    const lk = eulerToLook(e.alpha, e.beta, e.gamma);
+    azs.push(lk.az);
+    els.push(lk.el);
+    if(lastRaw != null){
+      const j = Math.abs(angDiff(e.alpha, lastRaw));
+      if(j > maxJump) maxJump = j;
+      if(azs.length > 1){
+        const aj = Math.abs(angDiff(azs[azs.length-1], azs[azs.length-2]));
+        if(aj > maxAzJump) maxAzJump = aj;
+      }
+    }
+    lastRaw = e.alpha;
+    const secsLeft = Math.max(0, 7 - (Date.now()-started)/1000);
+    $('s-live').innerHTML =
+      'raw α ' + e.alpha.toFixed(1) + ' · look az ' + lk.az.toFixed(1) +
+      '<br><small>hold still — ' + secsLeft.toFixed(0) + 's left</small>';
+  }
+
+  // Prefer absolute event if available (worst case for jitter), else relative
+  window.addEventListener('deviceorientationabsolute', collect, true);
+  window.addEventListener('deviceorientation', collect, true);
+  log('stability: collecting for 7s — hold still');
+
+  await new Promise(r => setTimeout(r, 7000));
+  window.removeEventListener('deviceorientationabsolute', collect, true);
+  window.removeEventListener('deviceorientation', collect, true);
+
+  if(rawAlpha.length < 5){
+    set('s-rawjit','no data','bad');
+    $('s-badge').textContent='FAILED'; $('s-badge').className='badge bad';
+    $('s-live').innerHTML = '— no sensor data —';
+    btn.disabled = false;
+    return;
+  }
+
+  const rawJit = circStdDev(rawAlpha);
+  const azJit = circStdDev(azs);
+  const elMean = els.reduce((a,b)=>a+b,0)/els.length;
+  const elJit = Math.sqrt(els.reduce((s,v)=>s+(v-elMean)*(v-elMean),0)/els.length);
+  const drift = Math.abs(angDiff(azs[azs.length-1], azs[0]));
+
+  const jc = v => v < 0.5 ? 'ok' : (v < 2 ? 'warn' : 'bad');
+  set('s-rawjit', rawJit.toFixed(2) + '°', jc(rawJit));
+  set('s-azjit',  azJit.toFixed(2) + '°', jc(azJit));
+  set('s-eljit',  elJit.toFixed(2) + '°', jc(elJit));
+  set('s-drift',  drift.toFixed(1) + '° over 7s',
+                  drift < 2 ? 'ok' : (drift < 8 ? 'warn' : 'bad'));
+  set('s-jump',   maxJump.toFixed(1) + '°',
+                  maxJump < 3 ? 'ok' : (maxJump < 15 ? 'warn' : 'bad'));
+
+  // Gimbal-lock signature: raw alpha jitter/jumps large WHILE look-vector
+  // azimuth stays calm => the old math would spring, the new math won't.
+  const gimbal = (rawJit > 3 || maxJump > 15) && azJit < 2.5;
+  if(gimbal){
+    set('s-gimbal','YES — old math would spring','bad');
+  } else if(rawJit > 3 || maxJump > 15){
+    set('s-gimbal','raw noisy, look-vec also noisy','warn');
+  } else {
+    set('s-gimbal','no','ok');
+  }
+
+  stab.rawJit = rawJit; stab.azJit = azJit; stab.elJit = elJit;
+  stab.drift = drift; stab.maxJump = maxJump; stab.gimbal = gimbal;
+  stab.done = true;
+
+  log('stability: rawAlphaJitter=' + rawJit.toFixed(2) +
+      ' lookAzJitter=' + azJit.toFixed(2) +
+      ' elJitter=' + elJit.toFixed(2) +
+      ' drift=' + drift.toFixed(1) +
+      ' maxJump=' + maxJump.toFixed(1) +
+      ' gimbal=' + gimbal);
+
+  const ok = azJit < 2 && elJit < 2;
+  $('s-badge').textContent = ok ? 'stable' : 'noisy';
+  $('s-badge').className = 'badge ' + (ok ? 'ok' : 'warn');
+  $('s-live').innerHTML = 'done — look-vector azimuth jitter ' +
+    azJit.toFixed(2) + '°<br><small>' +
+    (ok ? 'good enough for capture' : 'noisier than ideal') + '</small>';
+  btn.disabled = false;
+}
+const stab = { done:false };
+$('s-test').addEventListener('click', testStability);
+
+// ============================================================
+// COMPASS vs GYRO COMPARISON
+// ============================================================
+async function testCompassGyro(){
+  const btn = $('g-test');
+  btn.disabled = true;
+  $('g-badge').textContent = 'testing'; $('g-badge').className='badge wait';
+
+  if(motion.needsPerm){
+    try { await DeviceOrientationEvent.requestPermission(); } catch(e){}
+  }
+
+  let relAz = null, absAz = null;
+  const relSamples = [], absSamples = [];
+
+  function onRel(e){
+    if(e.alpha==null||e.beta==null||e.gamma==null) return;
+    relAz = eulerToLook(e.alpha,e.beta,e.gamma).az;
+    relSamples.push(relAz);
+  }
+  function onAbs(e){
+    if(e.alpha==null||e.beta==null||e.gamma==null) return;
+    absAz = eulerToLook(e.alpha,e.beta,e.gamma).az;
+    absSamples.push(absAz);
+  }
+  window.addEventListener('deviceorientation', onRel, true);
+  window.addEventListener('deviceorientationabsolute', onAbs, true);
+  log('compass/gyro: comparing for 6s');
+
+  await new Promise(r => setTimeout(r, 6000));
+  window.removeEventListener('deviceorientation', onRel, true);
+  window.removeEventListener('deviceorientationabsolute', onAbs, true);
+
+  const haveRel = relSamples.length >= 3;
+  const haveAbs = absSamples.length >= 3;
+
+  set('g-rel', haveRel ? relAz.toFixed(1)+'°' : 'no stream', haveRel?'ok':'bad');
+  set('g-abs', haveAbs ? absAz.toFixed(1)+'°' : 'no stream', haveAbs?'ok':'warn');
+
+  let rec = 'Gyro';
+  if(haveRel && haveAbs){
+    const div = Math.abs(angDiff(relAz, absAz));
+    set('g-div', div.toFixed(1)+'°', div < 5 ? 'ok' : (div < 20 ? 'warn':'bad'));
+    const absNoise = circStdDev(absSamples);
+    set('g-noise', absNoise.toFixed(2)+'° (still)',
+        absNoise < 1 ? 'ok' : (absNoise < 4 ? 'warn':'bad'));
+    if(absNoise > 4){
+      rec = 'Gyro — compass too noisy';
+    } else if(absNoise < 1.5 && div < 10){
+      rec = 'Either works — Compass OK';
+    } else {
+      rec = 'Gyro (smoother)';
+    }
+    log('compass/gyro: divergence=' + div.toFixed(1) +
+        ' absNoise=' + absNoise.toFixed(2));
+  } else if(haveRel){
+    set('g-div','—'); set('g-noise','no compass stream','warn');
+    rec = 'Gyro (only stream available)';
+  } else if(haveAbs){
+    set('g-div','—');
+    const absNoise = circStdDev(absSamples);
+    set('g-noise', absNoise.toFixed(2)+'°', absNoise<4?'ok':'bad');
+    rec = absNoise < 4 ? 'Compass' : 'Compass is noisy — try anyway';
+  } else {
+    set('g-div','no data','bad'); set('g-noise','no data','bad');
+    rec = 'No orientation events at all';
+  }
+  set('g-rec', rec, 'warn');
+  cg.rec = rec; cg.done = true;
+
+  $('g-badge').textContent = 'done'; $('g-badge').className='badge ok';
+  btn.disabled = false;
+}
+const cg = { done:false };
+$('g-test').addEventListener('click', testCompassGyro);
 
 // ---- CAMERA ----
 const cam = { api:false, env:false, res:'', count:0 };
@@ -353,9 +607,17 @@ $('c-test').addEventListener('click', testCamera);
 // ---- RUN ALL + VERDICT ----
 $('run-all').addEventListener('click', async () => {
   $('run-all').disabled = true;
+  $('run-all').textContent = 'Testing camera…';
   await testCamera();
+  $('run-all').textContent = 'Testing motion…';
   await testMotion();
-  setTimeout(showVerdict, 4600);
+  await new Promise(r => setTimeout(r, 4400));
+  $('run-all').textContent = 'Hold still — stability test…';
+  await testStability();
+  $('run-all').textContent = 'Hold still — compass test…';
+  await testCompassGyro();
+  $('run-all').textContent = 'Run everything & diagnose';
+  showVerdict();
 });
 
 function showVerdict(){
@@ -369,15 +631,40 @@ function showVerdict(){
   if(!motion.relFired && !motion.absFired)
     problems.push('No orientation events fired at all. On the Xperia, check Chrome → site settings → Motion sensors is allowed, and that Android Settings → Chrome → Permissions isn\'t blocking it.');
   else if(!motion.absFired && motion.relFired)
-    notes.push('Only <code>deviceorientation</code> fires, not <code>deviceorientationabsolute</code> — normal on many Android devices. The app falls back to relative alpha, which is fine since you set the zero direction with the shutter anyway.');
+    notes.push('Only <code>deviceorientation</code> fires, not <code>deviceorientationabsolute</code> — normal on many Android devices. Use <b>Gyro</b> mode in the app; it sets zero with the shutter anyway.');
   else if(motion.absFired)
-    notes.push('<code>deviceorientationabsolute</code> works — compass-referenced yaw available.');
-
-  if(motion.absFlag === false)
-    notes.push('Orientation <code>absolute</code> flag is false — yaw is relative/drift-prone, not compass-locked. Capture still works; just don\'t expect true-north accuracy.');
+    notes.push('<code>deviceorientationabsolute</code> works — compass-referenced yaw is available if you want it.');
 
   if((motion.relFired || motion.absFired) && !motion.abg)
     problems.push('Events fire but alpha/beta/gamma are null — the Xperia may need "Use sensors" enabled, or it\'s a sensor-fusion issue. Try toggling Android location on (some builds gate the magnetometer behind it).');
+
+  if(motion.eventCount > 0 && motion.eventCount/4.2 < 20)
+    notes.push('Sensor event rate is low (~' + (motion.eventCount/4.2).toFixed(0) + ' Hz). Tracking will feel a little laggy but should still work.');
+
+  // --- stability findings — directly addresses the springing ---
+  if(stab.done){
+    if(stab.gimbal){
+      notes.push('<b>Gimbal-lock confirmed.</b> Your raw alpha jittered ' +
+        stab.rawJit.toFixed(1) + '° / jumped up to ' + stab.maxJump.toFixed(0) +
+        '° while the phone was still, but the look-vector azimuth stayed within ' +
+        stab.azJit.toFixed(1) + '°. That spread is exactly the "springs in contradictory directions" bug — and the new look-vector math in the updated app fixes it. Make sure you\'re on this latest build.');
+    }
+    if(stab.azJit > 2.5)
+      problems.push('Look-vector azimuth is genuinely noisy (' + stab.azJit.toFixed(1) +
+        '° jitter while still) — beyond gimbal lock, this points to a real sensor-fusion problem. Try Gyro mode, and recalibrate by waving the phone in a figure-8 a few times before capture.');
+    else if(stab.done && !stab.gimbal && stab.azJit <= 2.5)
+      notes.push('Look-vector azimuth is stable (' + stab.azJit.toFixed(1) +
+        '° jitter) — the sensors themselves are fine on this phone.');
+    if(stab.drift > 8)
+      notes.push('Azimuth drifted ' + stab.drift.toFixed(0) + '° in 7s of holding still. ' +
+        'That\'s gyro drift — fine for a quick panorama, but shoot promptly after setting 0°.');
+  } else {
+    notes.push('Run the <b>Sensor Stability</b> test (hold the phone still) to confirm whether the springing is gimbal lock or a genuine sensor fault.');
+  }
+
+  // --- compass vs gyro recommendation ---
+  if(cg.done && cg.rec)
+    notes.push('Compass-vs-gyro test recommends: <b>' + cg.rec + '</b>. Set this under the app\'s <b>Motion Tracking</b> section.');
 
   if(!cam.env && !cam.res)
     problems.push('Camera could not be opened. Check Chrome camera permission for this site.');
@@ -385,11 +672,11 @@ function showVerdict(){
     notes.push('Rear camera by <code>facingMode:environment</code> failed but a fallback camera opened — the app may show the front camera. Worth checking which camera appears.');
 
   if(cam.count > 1)
-    notes.push('This phone has <b>' + cam.count + ' cameras</b>. Different browsers pick different lenses for <code>facingMode:environment</code> — that\'s why Chrome and Firefox disagreed. In the main app, use the <b>Camera → Detect</b> picker to lock one specific lens, and set the matching FOV preset. The lens list above shows each one\'s guessed FOV.');
+    notes.push('This phone has <b>' + cam.count + ' cameras</b>. Different browsers pick different lenses for <code>facingMode:environment</code> — that\'s why Chrome and Firefox disagreed. In the main app use <b>Camera → Detect</b> to lock one lens and set its FOV preset.');
 
   let html = '<h3>Diagnosis</h3>';
   if(problems.length === 0){
-    html += '<p style="color:var(--green)">All core checks passed. If the main app still misbehaves on this phone, it\'s a rendering issue rather than a hardware/permission one — send me what you see.</p>';
+    html += '<p style="color:var(--green)">No blocking problems found. If the overlay still springs, confirm you\'re running the latest build (look-vector tracking) and pick <b>Gyro</b> mode.</p>';
   } else {
     html += '<p style="color:var(--red)">Found ' + problems.length + ' issue' + (problems.length>1?'s':'') + ':</p><ul>';
     problems.forEach(p => html += '<li>' + p + '</li>');
