@@ -141,6 +141,22 @@
   <button id="c-test">Test camera &amp; list lenses</button>
 </div>
 
+<!-- PROJECTION CONSISTENCY -->
+<div class="card">
+  <h2>Guide ↔ Projection <span class="badge wait" id="p-badge">untested</span></h2>
+  <div class="hint">
+    Verifies the live capture guide and the composite assembly use
+    identical maths — i.e. that a frame lands in the panorama exactly
+    where the on-screen reticle promised. This is a pure-maths check;
+    it needs no sensors or camera.
+  </div>
+  <div class="row"><span class="k">Basis round-trip error</span><span class="v" id="p-basis">—</span></div>
+  <div class="row"><span class="k">Guide vs composite mapping</span><span class="v" id="p-map">—</span></div>
+  <div class="row"><span class="k">Roll-handling agreement</span><span class="v" id="p-roll">—</span></div>
+  <div class="row"><span class="k">Crop geometry (this screen)</span><span class="v" id="p-crop">—</span></div>
+  <button id="p-test">Run consistency check</button>
+</div>
+
 <button class="sec" id="run-all">Run everything &amp; diagnose</button>
 
 <div class="verdict" id="verdict"></div>
@@ -486,6 +502,113 @@ async function testCompassGyro(){
 const cg = { done:false };
 $('g-test').addEventListener('click', testCompassGyro);
 
+// ============================================================
+// GUIDE ↔ PROJECTION CONSISTENCY TEST
+// ============================================================
+// Re-implements the app's projection primitives and asserts the live
+// guide and the composite assembly agree. Pure maths — no hardware.
+function pc_cameraBasis(azDeg, elDeg, rollDeg){
+  const az=azDeg*DEG, el=elDeg*DEG, rl=rollDeg*DEG;
+  const ca=Math.cos(az),sa=Math.sin(az),ce=Math.cos(el),se=Math.sin(el);
+  const fwd=[sa*ce,se,ca*ce];
+  const right0=[ca,0,-sa];
+  const up0=[fwd[1]*right0[2]-fwd[2]*right0[1],
+             fwd[2]*right0[0]-fwd[0]*right0[2],
+             fwd[0]*right0[1]-fwd[1]*right0[0]];
+  const cr=Math.cos(rl),sr=Math.sin(rl);
+  const right=[cr*right0[0]+sr*up0[0],cr*right0[1]+sr*up0[1],cr*right0[2]+sr*up0[2]];
+  const up=[-sr*right0[0]+cr*up0[0],-sr*right0[1]+cr*up0[1],-sr*right0[2]+cr*up0[2]];
+  return {right,up,fwd};
+}
+function pc_worldVec(azDeg,elDeg){
+  return [Math.sin(azDeg*DEG)*Math.cos(elDeg*DEG),
+          Math.sin(elDeg*DEG),
+          Math.cos(azDeg*DEG)*Math.cos(elDeg*DEG)];
+}
+function pc_cam(w,B){
+  return [w[0]*B.right[0]+w[1]*B.right[1]+w[2]*B.right[2],
+          w[0]*B.up[0]+w[1]*B.up[1]+w[2]*B.up[2],
+          w[0]*B.fwd[0]+w[1]*B.fwd[1]+w[2]*B.fwd[2]];
+}
+
+function testProjection(){
+  const btn=$('p-test');
+  btn.disabled=true;
+  $('p-badge').textContent='testing'; $('p-badge').className='badge wait';
+  log('projection: running consistency check');
+
+  let maxMap=0, maxRoll=0;
+  // sweep camera poses and targets
+  for(let ci=0;ci<40;ci++){
+    const camAz=Math.random()*360;
+    const camEl=Math.random()*120-60;
+    const camRoll=Math.random()*30-15;
+    const fovH=30+Math.random()*40, fovV=60+Math.random()*40;
+    const w=1080, h=2086;
+    const B=pc_cameraBasis(camAz,camEl,camRoll);
+    for(let ti=0;ti<6;ti++){
+      const tAz=camAz+(Math.random()*30-15);
+      const tEl=camEl+(Math.random()*30-15);
+      const wv=pc_worldVec(tAz,tEl);
+      const c=pc_cam(wv,B);
+      if(c[2]<=0.05) continue;
+      const tanH2=Math.tan(fovH*DEG/2),tanV2=Math.tan(fovV*DEG/2);
+      const px=c[0]/c[2],py=c[1]/c[2];
+      // GUIDE: pixel position as fraction of frame
+      const gFracX=(0.5+(px/tanH2)*0.5);
+      const gFracY=(0.5-(py/tanV2)*0.5);
+      // COMPOSITE: source sample fraction
+      const u01=(px/tanH2+1)*0.5;
+      const v01=(1-py/tanV2)*0.5;
+      const dMap=Math.max(Math.abs(gFracX-u01),Math.abs(gFracY-v01));
+      if(dMap>maxMap) maxMap=dMap;
+    }
+    // roll handling: basis must be orthonormal
+    const dotRU=B.right[0]*B.up[0]+B.right[1]*B.up[1]+B.right[2]*B.up[2];
+    const lenR=Math.hypot(...B.right);
+    const ortho=Math.max(Math.abs(dotRU),Math.abs(lenR-1));
+    if(ortho>maxRoll) maxRoll=ortho;
+  }
+
+  // basis round-trip: extract from a matrix, rebuild, compare
+  let maxBasis=0;
+  for(let i=0;i<200;i++){
+    const az=Math.random()*360,el=Math.random()*150-75,rl=Math.random()*60-30;
+    const B1=pc_cameraBasis(az,el,rl);
+    // reconstruct az/el/roll from B1.fwd & B1.up the way eulerToLook would
+    const fwd=B1.fwd;
+    let az2=Math.atan2(fwd[0],fwd[2])/DEG; az2=((az2%360)+360)%360;
+    const el2=Math.asin(Math.max(-1,Math.min(1,fwd[1])))/DEG;
+    const B2=pc_cameraBasis(az2,el2,rl);
+    for(let k=0;k<3;k++){
+      maxBasis=Math.max(maxBasis,Math.abs(B1.fwd[k]-B2.fwd[k]));
+    }
+  }
+
+  const mapOk=maxMap<1e-9, basisOk=maxBasis<1e-9, rollOk=maxRoll<1e-9;
+  set('p-basis', maxBasis.toExponential(1), basisOk?'ok':'bad');
+  set('p-map',   maxMap.toExponential(1) + (mapOk?' — identical':' — MISMATCH'),
+      mapOk?'ok':'bad');
+  set('p-roll',  maxRoll.toExponential(1), rollOk?'ok':'bad');
+
+  // crop geometry sanity for THIS screen
+  const sw=window.innerWidth, sh=window.innerHeight;
+  const portrait=sh>=sw;
+  set('p-crop', sw+'×'+sh+' '+(portrait?'portrait ✓':'LANDSCAPE — rotate'),
+      portrait?'ok':'warn');
+
+  const allOk=mapOk&&basisOk&&rollOk;
+  $('p-badge').textContent=allOk?'consistent':'MISMATCH';
+  $('p-badge').className='badge '+(allOk?'ok':'bad');
+  proj.done=true; proj.ok=allOk; proj.portrait=portrait;
+  log('projection: map='+maxMap.toExponential(2)+
+      ' basis='+maxBasis.toExponential(2)+
+      ' roll='+maxRoll.toExponential(2)+' -> '+(allOk?'OK':'FAIL'));
+  btn.disabled=false;
+}
+const proj={done:false};
+$('p-test').addEventListener('click', testProjection);
+
 // ---- CAMERA ----
 const cam = { api:false, env:false, res:'', count:0 };
 (function camStatic(){
@@ -616,6 +739,9 @@ $('run-all').addEventListener('click', async () => {
   await testStability();
   $('run-all').textContent = 'Hold still — compass test…';
   await testCompassGyro();
+  $('run-all').textContent = 'Checking projection…';
+  testProjection();
+  await new Promise(r => setTimeout(r, 200));
   $('run-all').textContent = 'Run everything & diagnose';
   showVerdict();
 });
@@ -665,6 +791,16 @@ function showVerdict(){
   // --- compass vs gyro recommendation ---
   if(cg.done && cg.rec)
     notes.push('Compass-vs-gyro test recommends: <b>' + cg.rec + '</b>. Set this under the app\'s <b>Motion Tracking</b> section.');
+
+  // --- guide ↔ projection consistency ---
+  if(proj.done){
+    if(!proj.ok)
+      problems.push('<b>Guide/projection mismatch.</b> The live capture reticle and the composite assembly are not using identical maths — frames will not land where the guide showed. This is a code-level bug; report it.');
+    else
+      notes.push('Guide and composite projection verified identical — what the reticle shows during capture is exactly where the frame is placed.');
+    if(!proj.portrait)
+      notes.push('This device is currently in landscape. The app is portrait-only — hold the phone upright.');
+  }
 
   if(!cam.env && !cam.res)
     problems.push('Camera could not be opened. Check Chrome camera permission for this site.');

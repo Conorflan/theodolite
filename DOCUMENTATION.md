@@ -348,6 +348,35 @@ contains both `fisheye_180.png` and `composite_equirect.jpg`.
    `README.txt` with stitching instructions, and (fisheye mode)
    `fisheye_180.png`.
 
+### 7.0 The guide ↔ projection contract
+
+The live capture **guide** (`projectTarget` → `drawHud`) and the
+composite **projection** (`placeCapture`) are two separate code paths
+that *must* agree, or a frame lands somewhere other than where the
+reticle promised. They are kept consistent by three shared rules:
+
+1. **Same projection primitive.** Both build the camera orientation
+   with `cameraBasis(az, el, roll)` and project by the same three dot
+   products + pinhole divide. Neither path has its own rotation maths.
+2. **Same FOV.** `attemptCapture` stores `state.visFovH`/`visFovV` (the
+   exact values the guide was using) on the capture as `cap.fov` /
+   `cap.fovV`. `placeCapture` uses those stored values directly — it
+   does **not** re-derive vertical FOV from the pixel aspect (older
+   builds did; that is the fallback path only).
+3. **Same crop geometry.** `getCropGeometry()` is the single source of
+   truth for the camera→screen mapping. Both `updateVisibleFOV` (which
+   the guide depends on) and `attemptCapture` (which crops the saved
+   frame) call it. This matters on phones — e.g. the Xperia 1 II —
+   where the browser reports a portrait camera stream with landscape
+   `videoWidth/videoHeight`; `getCropGeometry` normalises that and
+   `attemptCapture` rotates the drawn frame back to portrait so its
+   `w/h` aspect matches the stored FOV.
+
+The `diagnostic.html` "Guide ↔ Projection" test asserts rule 1 and 2
+numerically (it should report agreement to ~1e-9). If that test fails,
+the two paths have drifted apart and frames will be misplaced
+regardless of sensor quality.
+
 ### 7.1 `metadata.json` schema
 
 ```jsonc

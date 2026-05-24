@@ -1566,38 +1566,70 @@ function onOrientation(e, isAbsolute) {
 // ============================================================
 // VISIBLE FOV (object-fit: cover crops the video)
 // ============================================================
-function updateVisibleFOV() {
+
+// Single source of truth for the camera→screen geometry. Both
+// updateVisibleFOV() and attemptCapture() MUST use this so the live
+// guide and the stored frame agree exactly.
+//
+// Returns, in PORTRAIT-NORMALISED video-pixel space (short edge = w,
+// long edge = h — the long edge maps to screen-vertical):
+//   vw, vh        : portrait-normalised video dimensions
+//   swapped       : whether videoWidth/Height were transposed
+//   visW, visH    : the visible (cover-cropped) extent, video px
+//   cropX, cropY  : top-left of the visible region, in RAW video px
+//   ok            : false if video not ready yet
+function getCropGeometry() {
   const v = $('video');
   let vw = v.videoWidth, vh = v.videoHeight;
   const sw = window.innerWidth, sh = window.innerHeight;
   if (!vw || !vh || !sw || !sh) {
+    return { ok: false };
+  }
+  // Screen is portrait-locked and the camera frame displays upright,
+  // so the video's LONG edge maps to screen-vertical regardless of how
+  // the browser reports the dimensions. Normalise to short=w, long=h.
+  const swapped = vw > vh;
+  if (swapped) { const t = vw; vw = vh; vh = t; }
+
+  // object-fit: cover — the larger scale factor fills the screen.
+  const scale = Math.max(sw / vw, sh / vh);
+  const visW = sw / scale;          // visible extent, video px (horizontal)
+  const visH = sh / scale;          // visible extent, video px (vertical)
+
+  // Crop offset must be expressed in RAW (un-normalised) video pixels,
+  // because drawImage() samples the raw video element. If the browser
+  // reported landscape, screen-horizontal corresponds to raw-vertical.
+  let cropX, cropY;
+  if (swapped) {
+    // raw video is landscape: raw-x ↔ screen-y, raw-y ↔ screen-x
+    cropX = (vh - visH) / 2;        // raw width  = vh
+    cropY = (vw - visW) / 2;        // raw height = vw
+  } else {
+    cropX = (vw - visW) / 2;
+    cropY = (vh - visH) / 2;
+  }
+  return { ok: true, vw, vh, swapped, visW, visH, cropX, cropY,
+           rawW: v.videoWidth, rawH: v.videoHeight };
+}
+
+function updateVisibleFOV() {
+  const g = getCropGeometry();
+  if (!g.ok) {
     // No video yet: assume portrait, lens FOV is the vertical (long) axis.
     state.visFovV = state.fov;
-    state.visFovH = state.fov * sw / Math.max(1, sh);
+    state.visFovH = state.fov * window.innerWidth /
+                    Math.max(1, window.innerHeight);
     return;
   }
 
-  // The screen is portrait-locked, and the camera frame is displayed
-  // upright, so the video's LONG edge always maps to screen-vertical
-  // and its SHORT edge to screen-horizontal — regardless of whether
-  // the browser reports videoWidth/Height as landscape or portrait.
-  // Normalise to (short = width, long = height) so the cover-crop
-  // maths below is orientation-agnostic.
-  if (vw > vh) { const t = vw; vw = vh; vh = t; }
-
   // state.fov is the lens FOV across its WIDE sensor axis (the figure
   // lens makers publish). That wide axis is the video's LONG edge,
-  // which we've put on screen-vertical — so it drives visFovV.
+  // which maps to screen-vertical — so it drives visFovV.
   const tanFullLong  = Math.tan(state.fov * Math.PI / 360); // → vertical
-  const tanFullShort = tanFullLong * (vw / vh);             // → horizontal
+  const tanFullShort = tanFullLong * (g.vw / g.vh);         // → horizontal
 
-  // object-fit: cover crops the (normalised-portrait) video to fill.
-  const scale = Math.max(sw / vw, sh / vh);
-  const visVideoW = sw / scale;   // visible extent in video px (screen-horizontal)
-  const visVideoH = sh / scale;   // visible extent in video px (screen-vertical)
-
-  const tanVisH = tanFullShort * (visVideoW / vw);
-  const tanVisV = tanFullLong  * (visVideoH / vh);
+  const tanVisH = tanFullShort * (g.visW / g.vw);
+  const tanVisV = tanFullLong  * (g.visH / g.vh);
   state.visFovH = 2 * Math.atan(tanVisH) * 180 / Math.PI;
   state.visFovV = 2 * Math.atan(tanVisV) * 180 / Math.PI;
 }
@@ -1982,21 +2014,48 @@ async function attemptCapture(manual) {
   $('flash').classList.add('show');
   setTimeout(() => $('flash').classList.remove('show'), 260);
 
-  // Capture only the VISIBLE area (cropped per object-fit: cover)
+  // Capture the VISIBLE area using the SAME crop geometry the live
+  // guide used (getCropGeometry) — so the stored frame and the FOV
+  // stored alongside it are mutually consistent.
   const v = $('video');
-  const vw = v.videoWidth || 1080, vh = v.videoHeight || 1920;
-  const sw = window.innerWidth, sh = window.innerHeight;
-
-  const scale = Math.max(sw / vw, sh / vh);
-  const visW = sw / scale;
-  const visH = sh / scale;
-  const cropX = (vw - visW) / 2;
-  const cropY = (vh - visH) / 2;
+  const g = getCropGeometry();
 
   const cnv = document.createElement('canvas');
-  cnv.width = Math.round(visW);
-  cnv.height = Math.round(visH);
-  cnv.getContext('2d').drawImage(v, cropX, cropY, visW, visH, 0, 0, cnv.width, cnv.height);
+  if (g.ok) {
+    // Output canvas is portrait: width = visible-horizontal extent,
+    // height = visible-vertical extent (matches visFovH / visFovV).
+    cnv.width  = Math.round(g.visW);
+    cnv.height = Math.round(g.visH);
+    const cctx = cnv.getContext('2d');
+    if (g.swapped) {
+      // Browser reports the stream landscape: the raw video element is
+      // rotated 90° vs what's shown. Draw it rotated back to portrait
+      // so the saved frame's long axis is vertical, matching the FOV.
+      cctx.save();
+      cctx.translate(cnv.width / 2, cnv.height / 2);
+      cctx.rotate(-Math.PI / 2);
+      // after rotation the drawing axes are swapped: draw the cropped
+      // raw region (visH wide × visW tall in raw px) centred.
+      cctx.drawImage(
+        v,
+        g.cropX, g.cropY, g.visH, g.visW,   // src rect, RAW video px
+        -cnv.height / 2, -cnv.width / 2,    // dest (axes swapped)
+        cnv.height, cnv.width
+      );
+      cctx.restore();
+    } else {
+      cctx.drawImage(
+        v,
+        g.cropX, g.cropY, g.visW, g.visH,   // src rect, raw video px
+        0, 0, cnv.width, cnv.height
+      );
+    }
+  } else {
+    // Fallback: video not ready — grab whatever is there.
+    cnv.width = v.videoWidth || 1080;
+    cnv.height = v.videoHeight || 1920;
+    cnv.getContext('2d').drawImage(v, 0, 0, cnv.width, cnv.height);
+  }
 
   const t = state.targets[state.targetIdx];
   state.captures.push({
@@ -2006,7 +2065,8 @@ async function attemptCapture(manual) {
     az: state.yaw,
     el: state.pitch,
     roll: state.roll,
-    fov: state.visFovH,            // store the FOV of what was actually captured
+    fov: state.visFovH,            // horizontal FOV of the stored frame
+    fovV: state.visFovV,           // vertical FOV (frame is portrait)
     fovStated: state.fov,
     w: cnv.width, h: cnv.height,
     canvas: cnv,
@@ -2210,8 +2270,12 @@ async function composeEquirectangular(progressCb) {
 function placeCapture(ctx, W, H, cap) {
   return new Promise(resolve => {
     const fovH = cap.fov * Math.PI / 180;
-    const aspect = cap.h / cap.w;
-    const fovV = 2 * Math.atan(Math.tan(fovH/2) * aspect);
+    // Use the stored vertical FOV when present (exact, measured at
+    // capture time); fall back to deriving it from the pixel aspect
+    // for frames captured by older builds.
+    const fovV = (cap.fovV != null)
+      ? cap.fovV * Math.PI / 180
+      : 2 * Math.atan(Math.tan(fovH / 2) * (cap.h / cap.w));
     const tanH2 = Math.tan(fovH / 2);
     const tanV2 = Math.tan(fovV / 2);
 
@@ -2398,6 +2462,7 @@ async function downloadZip() {
         actual_el_deg: +c.el.toFixed(2),
         actual_roll_deg: +c.roll.toFixed(2),
         fov_h_deg: +c.fov.toFixed(2),
+        fov_v_deg: c.fovV != null ? +c.fovV.toFixed(2) : null,
         fov_h_deg_camera_full: c.fovStated,
         width: c.w,
         height: c.h,
